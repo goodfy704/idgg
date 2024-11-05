@@ -1,20 +1,19 @@
 
 function likeButton() {
     return (
-      <form class="max-w-md mx-auto">   
-          <label for="default-search" class="mb-2 text-sm font-medium text-gray-900 sr-only dark:text-white">Search</label>
-          <div class="relative">
-              <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
-                  <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
-                      <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
-                  </svg>
-              </div>
-              <input type="search" id="default-search" class="block w-full p-4 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark dark:focus:ring-blue-500 dark:focus:border-blue-500" placeholder="Search Mockups, Logos..." required />
-              <button type="submit" class=" absolute end-2.5 bottom-2.5 bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Search</button>
+      <div class="max-w-screen-lg mx-auto"> 
+          <div class="relative top-1/2">
+          <div class="absolute -inset-1 -m-4 ring ring-dark-silver rounded-lg"></div>
+          <div class="absolute -inset-1 -m-4 ring bg-dark-silver bg-opacity-10 ring-dark-silver rounded-lg blur"></div>
+              <input type="search" id="default-search" class="relative bg-black-russian block w-full p-4 ps-5 text-sm rounded-lg text-gray-light focus:outline-none ring-1 ring-dark-silver ring-opacity-50 mr-200" placeholder="Search Mockups, Logos..." required />
+              <button type="submit" class="absolute end-2.5 bottom-2.5 font-medium rounded-lg text-sm px-4 py-2"> 
+                    <svg class="w-4 h-4 text-gray-500 dark:text-gray-light" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z"/>
+                    </svg>
+              </button>
           </div>
-      </form>
+      </div>
     );
   }
 
-  export default likeButton;
-  
+export default likeButton;
