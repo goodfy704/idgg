@@ -1,5 +1,5 @@
 
-function likeButton() {
+function LikeButton() {
     return (
       <div class="max-w-screen-lg mx-auto"> 
           <div class="relative top-1/2">
@@ -16,4 +16,4 @@ function likeButton() {
     );
   }
 
-export default likeButton;
+export default LikeButton;
