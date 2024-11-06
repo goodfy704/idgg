@@ -1,16 +1,16 @@
 import {BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import LikeButton from './components/like_button';
+import Home from './components/home';
 import NotFoundPage from './components/NotFoundPage';
 
-function AppRoutes() {
+function appRoutes() {
     return (
         <Router>
             <Routes>
-                <Route exact path="/" element={<LikeButton />}/>
+                <Route exact path="/" element={<Home />}/>
                 <Route exact path="/player" element={<NotFoundPage />}/>
             </Routes>
         </Router>
     )
 }
 
-export default AppRoutes;
+export default appRoutes;
