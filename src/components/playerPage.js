@@ -1,12 +1,14 @@
 import {useState, useEffect} from 'react';
-import axios from 'axios';
-import { useParams } from 'react-router-dom'; 
+import axios, { HttpStatusCode } from 'axios';
+import { useParams, useNavigate } from 'react-router-dom'; 
 
 import RankedSolo from './rankedSoloAndFlex';
 import SummonerKeystones from './summonerKeystones';
 import SummonerItems from './summonerItems';
 import MatchTimeAndQueueType from './matchTimeAndQueueType';
 import MatchParticipants from './matchParticipants';
+import SummonerProfile from './summonerProfile';
+import NotFoundPage from './NotFoundPage';
 
 function PlayerPage() {
     const [gameList, setGameList] = useState([]);
@@ -14,6 +16,7 @@ function PlayerPage() {
     const [league, setLeague] = useState({});
     const [champStats, setChampStats] = useState({});
     const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
 
     const { searchedPlayer } = useParams();
     const [playerName, tagLine] = searchedPlayer.split("-");
@@ -49,8 +52,13 @@ function PlayerPage() {
                 setSummoner(summonerResponse.data); 
                 setLeague(rearrangedLeague);
 
+                if (!summonerResponse.data || Object.keys(summonerResponse.data).length === 0) {
+                    navigate("/notFound"); // Redirect to Not Found page
+                  }
+
             } catch (error) {   
                 console.error("Error fetching data:", error);
+                navigate("/tooManyRequests");
             } finally {
                 setLoading(false); // Set loading to false after fetching
             }
@@ -80,30 +88,23 @@ function PlayerPage() {
 
     if (loading) {
         return (
-            <div className="text-white flex justify-center items-center h-screen">
+            <div className="text-white w-screen text-center h-screen content-center text-4xl">
                 <p>Loading...</p>
             </div>
         );
     }
 
     return <div className="text-white grid gap-4 grid-cols-1 place-content-start">
-        <div className="w-screen pt-64 bg-deep-charocal">
+        <div className="w-screen pt-64 bg-gradient-to-r from-darker-plume via-dark-plume to-darker-plume border-b-2 hover:drop-shadow-goldish border-plume ">
 
                 <div className="flex justify-center">
                     {JSON.stringify(summoner) !== '{}' ?
                     <>
-                    <div className="grid">
-                        <img className="w-32 h-32 justify-self-center" alt="profilePicture" src={"https://cdn.communitydragon.org/latest/profile-icon/" + summoner.profileIconId}></img>
-                        <p className="ml-auto mr-auto">{summoner.summonerLevel}</p>
-                        <div className="flex">
-                            <p className="ml-auto mr-auto text-lg"><b>{playerName}</b></p>
-                            <p className="ml-auto mr-auto text-lg">#{tagLine}</p>
-                        </div>
-                    </div>
+                    <SummonerProfile summoner={summoner} playerName={playerName} tagLine={tagLine}/>
                     </> 
                     :
                     <>
-                    <p>404 not found</p>
+                    <NotFoundPage />
                     </>
                     }
                 </div>
@@ -112,16 +113,16 @@ function PlayerPage() {
             </div>
         </div>
         <div className="grid grid-cols-2 grid-rows-4 h-1/3 gap-4 ml-32">
-            <div className="rounded-xl mt-8 border-2">  
+            <div className="rounded-xl mt-8 bg-black-russian bg-opacity-35 border-2 transition ease-in-out delay-150 border-dark-silver drop-shadow-plume hover:drop-shadow-goldish">  
                 <RankedSolo league={league} />
             </div>
-                <div className="relative mt-8 border-2 rounded-xl grid grid-cols-1 h-max max-w-screen-lg">
+                <div className="relative mt-8 border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid grid-cols-1 h-max max-w-screen-lg">
                     {gameList.length !== 0 ?
                     <>
                     {   
                     gameList.map((gameData, index) =>
-                    <div key={`game-${index}`} className="border-2 rounded-xl mb-4 mr-4 ml-4 grid grid-cols-3 grid-flow-row">
-                        <div className="m-8 ml-12">
+                    <div key={`game-${index}`} className="first:mt-4 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-2 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish mb-4 mr-4 ml-4 grid grid-cols-3 grid-flow-row">
+                        <div className="m-8 ml-12"> 
                             <MatchTimeAndQueueType gameData={gameData}/>
                         </div>
                         <div className="">
@@ -148,7 +149,7 @@ function PlayerPage() {
                     </>
                 }
                 </div>
-            <div className="border-2 rounded-xl grid">
+            <div className="border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-plume rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
                 <div className="mt-8 ml-8">
                     Champion stats
                     <div className="grid grid-cols-10 border-2">
