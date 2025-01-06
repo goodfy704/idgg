@@ -8,7 +8,7 @@ function Home() {
     const navigate = useNavigate();
 
     const handleSearch = () => {
-        const formattedSearchText = searchText.replace("#", "-"); // Format the text as needed (Truperos-SHIZO)
+        const formattedSearchText = searchText.replace("#", "-");
         navigate(`/${formattedSearchText}`);
       };
 
