@@ -1,6 +1,6 @@
 import {useState, useEffect} from 'react';
 import axios from 'axios';
-import { useLocation } from 'react-router-dom';
+import { useParams } from 'react-router-dom'; 
 
 import RankedSolo from './rankedSoloAndFlex';
 import SummonerKeystones from './summonerKeystones';
@@ -14,11 +14,9 @@ function PlayerPage() {
     const [league, setLeague] = useState({});
     const [champStats, setChampStats] = useState({});
     const [loading, setLoading] = useState(true);
-    const {state} = useLocation();
-    const searchedText = state;
-    const playerNameAndTagLine = state.searchedPlayer;
-    const playerName = playerNameAndTagLine.split("#")[0];
-    const tagLine = playerNameAndTagLine.split("#")[1];
+
+    const { searchedPlayer } = useParams();
+    const [playerName, tagLine] = searchedPlayer.split("-");
     const championsUrl = "https://cdn.communitydragon.org/latest/champion/";
     const summonerUrl = "https://ddragon.leagueoflegends.com/cdn/14.23.1/img/spell/";
     const runesUrl = "https://ddragon.leagueoflegends.com/cdn/img/perk-images/Styles/";
@@ -39,9 +37,9 @@ function PlayerPage() {
             try {
                 setLoading(true); // Set loading to true before fetching
                 const [gamesResponse, summonerResponse, leagueResponse] = await Promise.all([
-                    axios.get("http://localhost:4000/past5Games", { params: { userInput: searchedText } }),
-                    axios.get("http://localhost:4000/summoner", { params: { userInput: searchedText } }),
-                    axios.get("http://localhost:4000/league", { params: { userInput: searchedText } }),
+                    axios.get("http://localhost:4000/past5Games", { params: { userInput: searchedPlayer } }),
+                    axios.get("http://localhost:4000/summoner", { params: { userInput: searchedPlayer } }),
+                    axios.get("http://localhost:4000/league", { params: { userInput: searchedPlayer } }),
                 ]);
 
                 const rearrangedLeague = rearrangeLeagueData(leagueResponse.data);
@@ -59,7 +57,7 @@ function PlayerPage() {
         };
 
         fetchData();
-      }, [searchedText]);
+      }, [searchedPlayer]);
 
     //   useEffect(() => {
     //     const fetchChampionStats = async () => {
@@ -74,10 +72,10 @@ function PlayerPage() {
     
     //     fetchChampionStats();
     // }, [searchedText]);
-    
-     // console.log("summoner data: ", gameList);
+
+     console.log("summoner data: ", gameList);
     //   console.log("summoner data: ", summoner);
-       console.log("ranked, first is flex second is solo", league);
+    //  console.log("ranked, first is flex second is solo", league);
     //    console.log("Champ stats: ", champStats);
 
     if (loading) {

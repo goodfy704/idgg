@@ -9,7 +9,7 @@ function appRoutes() {
             <Routes>
                 <Route exact path="/" element={<Home />}/>
                 <Route exact path="/player" element={<NotFoundPage />}/>
-                <Route exact path="/stats" element={<PlayerPage />}/>
+                <Route exact path="/:searchedPlayer" element={<PlayerPage />}/>
             </Routes>
         </Router>
     )
