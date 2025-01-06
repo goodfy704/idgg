@@ -51,8 +51,8 @@ function convertRankAndTier(tier, rank) {
         "IV": "4"
     };
 
-    const tierAbbr = tierMap[tier.toUpperCase()] || tier;
-    const rankNum = rankMap[rank.toUpperCase()] || rank;
+    const tierAbbr = tierMap[tier?.toUpperCase()] || tier;
+    const rankNum = rankMap[rank?.toUpperCase()] || rank;
 
     return `${tierAbbr}${rankNum}`;
 }
@@ -108,20 +108,21 @@ function getNextRank(tier, rank) {
     return `${tierMap[tier]}${nextRank}`;
 }
 
-function returnPlayerTierOrDontShowRankIfAboveMaster(league) {
-    if (league[0] === null || league[1] === null) {
-        return (
-            <div>
-                Unranked
-            </div>
-        )
+function returnPlayerTierOrDontShowRankIfAboveMaster(league, queueType) {
+    if (queueType === "RANKED_SOLO_5x5"){
+        if (league[0].tier === "MASTER" || league[0].tier === "GRANDMASTER" || league[0].tier === "CHALLENGER") {
+            league[0].rank = "";
+        } else {
+            return league[0].rank;
+        }
+    } else {
+        if (league[1].tier === "MASTER" || league[0].tier === "GRANDMASTER" || league[0].tier === "CHALLENGER") {
+            league[1].rank = "";
+        } else {
+            return league[1].rank;
+        }
     }
 
-    if (league[0].tier === "MASTER" || league[0].tier === "GRANDMASTER" || league[0].tier === "CHALLENGER") {
-        league[0].rank = "";
-    } else {
-        return league[0].rank;
-    }
 
 }
 
@@ -153,6 +154,8 @@ function RankedSolo({ league }) {
     return (
         <div>
         <div className="mt-8 ml-8 w-2/5">
+        {JSON.stringify(league[0]) !== '{}' ?
+        <>
             <p>Ranked solo</p>
             <div className="grid grid-cols-10">
                 <div className="col-span-2">
@@ -160,7 +163,7 @@ function RankedSolo({ league }) {
                 </div>
                 <div className="grid-cols-2 col-span-3">
                     <div>
-                        <div>{league[0].tier} {returnPlayerTierOrDontShowRankIfAboveMaster(league)}</div>
+                        <div>{league[0].tier} {returnPlayerTierOrDontShowRankIfAboveMaster(league, league[0].queueType)}</div>
                         <div>{league[0].leaguePoints}LP</div>
                     </div>
                 </div>
@@ -189,8 +192,15 @@ function RankedSolo({ league }) {
                     ></div>
                 </div>
             </div>
+            </>
+            :   
+            <>
+            </>
+            }
         </div>
         <div className="mt-8 ml-8 w-2/5">
+        {JSON.stringify(league[1]) !== '{}' ?
+        <>
         <p>Ranked flex</p>
         <div className="grid grid-cols-10">
             <div className="col-span-2">
@@ -198,7 +208,7 @@ function RankedSolo({ league }) {
             </div>
             <div className="grid-cols-2 col-span-3">
                 <div>
-                    <div>{league[1].tier} {returnPlayerTierOrDontShowRankIfAboveMaster(league)}</div>
+                    <div>{league[1].tier} {returnPlayerTierOrDontShowRankIfAboveMaster(league, league[1].queueType)}</div>
                     <div>{league[1].leaguePoints}LP</div>
                 </div>
             </div>
@@ -227,6 +237,11 @@ function RankedSolo({ league }) {
                 ></div>
             </div>
         </div>
+        </>
+        :
+        <>
+        </>
+        }
     </div>
     </div>
     );

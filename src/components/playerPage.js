@@ -75,7 +75,7 @@ function PlayerPage() {
 
      console.log("summoner data: ", gameList);
     //   console.log("summoner data: ", summoner);
-    //  console.log("ranked, first is flex second is solo", league);
+      console.log("ranked, first is flex second is solo", league);
     //    console.log("Champ stats: ", champStats);
 
     if (loading) {
