@@ -16,6 +16,10 @@ module.exports = {
       'deep-charocal': '#2C2C2C',
       'black-russian' : '#1c1c20',
       'dark-silver' : '#766d72',
+      'dark-pink': '#23162e',
+      'plume': '#2e2b4d',
+      'darker-plume': '#140919',
+      'dark-plume': '#050205',
     },
     fontFamily: {
       sans: ['Graphik', 'sans-serif'],
@@ -31,6 +35,10 @@ module.exports = {
       },
       borderRadius: {
         '4xl': '2rem',
+      },
+      dropShadow: {
+        'plume': '0 25px 25px rgba(46, 43, 77, 0.25)',
+        'goldish': '0 25px 25px rgba(136, 89, 114, 0.10)',
       }
     }
   },
