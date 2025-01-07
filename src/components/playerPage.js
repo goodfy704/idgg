@@ -46,12 +46,13 @@ function PlayerPage() {
                 ]);
 
                 const rearrangedLeague = rearrangeLeagueData(leagueResponse.data);
+                console.log("asdasd", rearrangedLeague);
                 
                 // Update states with fetched data
-                setGameList(gamesResponse.data);
                 setSummoner(summonerResponse.data); 
+                setGameList(gamesResponse.data);
                 setLeague(rearrangedLeague);
-
+                console.log(summonerResponse.data);
                 if (!summonerResponse.data || Object.keys(summonerResponse.data).length === 0) {
                     navigate("/notFound"); // Redirect to Not Found page
                   }
@@ -149,7 +150,7 @@ function PlayerPage() {
                     </>
                 }
                 </div>
-            <div className="border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-plume rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
+            <div className="border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
                 <div className="mt-8 ml-8">
                     Champion stats
                     <div className="grid grid-cols-10 border-2">

@@ -24,7 +24,7 @@ const MatchParticipants = ({ gameData, championsUrl }) => {
                                 {gameData.info.participants.slice(5).map((data, participantIndex) => (
                                     <div key={`first-grid-${participantIndex}`} className="flex cursor-pointer" onClick={() => handlePlayerClick(data.riotIdGameName, data.riotIdTagline)}>
                                         <img className="w-6 h-6" alt="" src={championsUrl + data.championName + "/square"}></img>
-                                        <p>{data.riotIdGameName}</p>
+                                        <p className="hover:underline">{data.riotIdGameName}</p>
                                     </div>
                                 ))}
                             </div>
