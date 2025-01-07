@@ -1,0 +1,58 @@
+Date : 2024-12-22 18:24:12
+Directory : d:\programming\webApps\idgg
+Total : 23 files,  22153 codes, 51 comments, 111 blanks, all 22315 lines
+
+Languages
++------------+------------+------------+------------+------------+------------+
+| language   | files      | code       | comment    | blank      | total      |
++------------+------------+------------+------------+------------+------------+
+| JSON       |          5 |     21,432 |          0 |          5 |     21,437 |
+| JavaScript |         13 |        634 |         27 |         67 |        728 |
+| Markdown   |          1 |         38 |          0 |         33 |         71 |
+| PostCSS    |          3 |         26 |          1 |          4 |         31 |
+| HTML       |          1 |         23 |         23 |          2 |         48 |
++------------+------------+------------+------------+------------+------------+
+
+Directories
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                            | files      | code       | comment    | blank      | total      |
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                               |         23 |     22,153 |         51 |        111 |     22,315 |
+| . (Files)                                                       |          3 |      1,274 |          9 |         14 |      1,297 |
+| idgg                                                            |         20 |     20,879 |         42 |         97 |     21,018 |
+| idgg (Files)                                                    |          4 |     20,255 |          1 |         37 |     20,293 |
+| idgg\public                                                     |          3 |         54 |         23 |          3 |         80 |
+| idgg\src                                                        |         13 |        570 |         18 |         57 |        645 |
+| idgg\src (Files)                                                |         10 |         94 |          8 |         18 |        120 |
+| idgg\src\components                                             |          3 |        476 |         10 |         39 |        525 |
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
+| filename                                                        | language   | code       | comment    | blank      | total      |
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
+| d:\programming\webApps\idgg\idgg\README.md                      | Markdown   |         38 |          0 |         33 |         71 |
+| d:\programming\webApps\idgg\idgg\package-lock.json              | JSON       |     20,135 |          0 |          1 |     20,136 |
+| d:\programming\webApps\idgg\idgg\package.json                   | JSON       |         46 |          0 |          1 |         47 |
+| d:\programming\webApps\idgg\idgg\public\index.html              | HTML       |         23 |         23 |          2 |         48 |
+| d:\programming\webApps\idgg\idgg\public\manifest.json           | JSON       |         25 |          0 |          1 |         26 |
+| d:\programming\webApps\idgg\idgg\public\postcss.config.js       | JavaScript |          6 |          0 |          0 |          6 |
+| d:\programming\webApps\idgg\idgg\src\App.css                    | PostCSS    |          3 |          0 |          0 |          3 |
+| d:\programming\webApps\idgg\idgg\src\App.js                     | JavaScript |         12 |          0 |          3 |         15 |
+| d:\programming\webApps\idgg\idgg\src\App.test.js                | JavaScript |          7 |          0 |          2 |          9 |
+| d:\programming\webApps\idgg\idgg\src\components\NotFoundPage.js | JavaScript |          6 |          0 |          1 |          7 |
+| d:\programming\webApps\idgg\idgg\src\components\home.js         | JavaScript |         24 |          0 |          4 |         28 |
+| d:\programming\webApps\idgg\idgg\src\components\playerPage.js   | JavaScript |        446 |         10 |         34 |        490 |
+| d:\programming\webApps\idgg\idgg\src\index.css                  | PostCSS    |         15 |          0 |          3 |         18 |
+| d:\programming\webApps\idgg\idgg\src\index.js                   | JavaScript |         10 |          3 |          3 |         16 |
+| d:\programming\webApps\idgg\idgg\src\reportWebVitals.js         | JavaScript |         12 |          0 |          2 |         14 |
+| d:\programming\webApps\idgg\idgg\src\routes.js                  | JavaScript |         16 |          0 |          2 |         18 |
+| d:\programming\webApps\idgg\idgg\src\setupProxy.js              | JavaScript |         10 |          0 |          1 |         11 |
+| d:\programming\webApps\idgg\idgg\src\setupTests.js              | JavaScript |          1 |          4 |          1 |          6 |
+| d:\programming\webApps\idgg\idgg\src\styles.css                 | PostCSS    |          8 |          1 |          1 |         10 |
+| d:\programming\webApps\idgg\idgg\tailwind.config.js             | JavaScript |         36 |          1 |          2 |         39 |
+| d:\programming\webApps\idgg\package-lock.json                   | JSON       |      1,215 |          0 |          1 |      1,216 |
+| d:\programming\webApps\idgg\package.json                        | JSON       |         11 |          0 |          1 |         12 |
+| d:\programming\webApps\idgg\proxyServer.js                      | JavaScript |         48 |          9 |         12 |         69 |
+| Total                                                           |            |     22,153 |         51 |        111 |     22,315 |
++-----------------------------------------------------------------+------------+------------+------------+------------+------------+
