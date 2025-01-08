@@ -9,6 +9,7 @@ import MatchTimeAndQueueType from './matchTimeAndQueueType';
 import MatchParticipants from './matchParticipants';
 import SummonerProfile from './summonerProfile';
 import NotFoundPage from './NotFoundPage';
+import SummonerMatchStats from './summonerMatchStats';
 
 function PlayerPage() {
     const [gameList, setGameList] = useState([]);
@@ -153,10 +154,8 @@ function PlayerPage() {
             <div className="border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
                 <div className="mt-8 ml-8">
                     Champion stats
-                    <div className="grid grid-cols-10 border-2">
-                        <div className="border-2 ">sample1</div>
-                        <div className="border-2 ">sample2</div>
-                        <div className="col-span-6 border-2">sample3</div>
+                    <div>
+                        <SummonerMatchStats gameList={gameList} summoner={summoner} />
                     </div>
                 </div>
             </div>  
