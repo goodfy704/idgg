@@ -12,7 +12,7 @@ const limiter = new Bottleneck({
 });
 
 
-const API_KEY="RGAPI-9b297f96-7fe6-4596-87b2-2282936bb213";
+const API_KEY="RGAPI-8c535fb7-0a69-468c-96df-e2cc80a74baa";
 
 app.listen(4000, function () { 
     console.log("Server started on port 4000");
