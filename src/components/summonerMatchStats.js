@@ -10,7 +10,7 @@ const processChampionStats = (gameList, summonerPUUID) => {
         );
 
         if (player) {
-            const { championName, kills, deaths, assists, win } = player;
+            const { championName, kills, deaths, assists, timePlayed, win } = player;
 
             if (!championStats[championName]) {
                 championStats[championName] = {
@@ -19,6 +19,7 @@ const processChampionStats = (gameList, summonerPUUID) => {
                     kills: 0,
                     deaths: 0,
                     assists: 0,
+                    timePlayed: 0,
                 };
             }
 
@@ -27,6 +28,7 @@ const processChampionStats = (gameList, summonerPUUID) => {
             championStats[championName].kills += kills;
             championStats[championName].deaths += deaths;
             championStats[championName].assists += assists;
+            championStats[championName].timePlayed += timePlayed;
         }
     });
 
@@ -34,7 +36,7 @@ const processChampionStats = (gameList, summonerPUUID) => {
     Object.keys(championStats).forEach((championName) => {
         const stats = championStats[championName];
         stats.kda = ((stats.kills + stats.assists) / Math.max(1, stats.deaths)).toFixed(2);
-        stats.detailsKDA = `${stats.kills} / ${stats.deaths} / ${stats.assists}`;
+        stats.detailsKDA = `${(stats.kills / stats.gamesPlayed).toFixed(0)} / ${(stats.deaths / stats.gamesPlayed).toFixed(0)} / ${(stats.assists / stats.gamesPlayed).toFixed(0)}`;
         stats.winRate = ((stats.wins / stats.gamesPlayed) * 100).toFixed(0);
     });
 

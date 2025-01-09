@@ -224,7 +224,7 @@ const mostPlayedChampion = getMostPlayedChampion(championStats);
                 <LastGamesStatistics gameList={aggregatedStats}/>
                 {mostPlayedChampion && (    
             <div className="col-span-5 mt-4">
-                <h3 className="text-lg text-center mb-5">Your best champion</h3>
+                <h3 className="text-lg text-center mb-5">Your most champion</h3>
                 
                 <div className="grid grid-cols-4">
                     <img className="w-20 h-20 " alt="" src={championsUrl + mostPlayedChampion.championName + "/square"}></img>
