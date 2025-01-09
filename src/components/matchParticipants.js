@@ -10,6 +10,8 @@ const MatchParticipants = ({ gameData, championsUrl }) => {
         navigate(`/${formattedSearchText}`);
     };
 
+    console.log("match participants champ icon", gameData.championName);
+    
     return (
         <div className="grid grid-cols-2 m-2">
                             <div className="text-white">   

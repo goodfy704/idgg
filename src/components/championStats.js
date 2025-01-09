@@ -7,7 +7,6 @@ const ChampionStats = ({ stats }) => {
         <div className="grid grid-cols-2">
             {Object.keys(stats).map((championName) => {
                 const { gamesPlayed, kda, detailsKDA, winRate } = stats[championName];
-                console.log(detailsKDA)
 
                 return (
                     <div
