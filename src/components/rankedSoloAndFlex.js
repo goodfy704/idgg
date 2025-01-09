@@ -77,6 +77,7 @@ function getNextRank(tier, rank) {
     };
 
     const rankMap = {
+        "": "",
         "I": 1,
         "II": 2,
         "III": 3,
@@ -105,6 +106,7 @@ function getNextRank(tier, rank) {
     const nextRankNum = currentRankNum - 1;
     const nextRankRoman = rankRevMap[nextRankNum] || rank;
     const nextRank = rankMap[nextRankRoman]
+    
     return `${tierMap[tier]}${nextRank}`;
 }
 

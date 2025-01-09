@@ -230,7 +230,7 @@ const mostPlayedChampion = getMostPlayedChampion(championStats);
                     <img className="w-20 h-20 " alt="" src={championsUrl + mostPlayedChampion.championName + "/square"}></img>
                 <div className="col-span-3">
                     <p>Games Played: {mostPlayedChampion.gamesPlayed}</p>
-                    <p>KDA: {(mostPlayedChampion.kills / mostPlayedChampion.gamesPlayed).toFixed(2)} / {(mostPlayedChampion.deaths / mostPlayedChampion.gamesPlayed).toFixed(2)} / {(mostPlayedChampion.assists / mostPlayedChampion.gamesPlayed).toFixed(2)}</p>
+                    <p>KDA: {(mostPlayedChampion.kills / mostPlayedChampion.gamesPlayed).toFixed(0)} / {(mostPlayedChampion.deaths / mostPlayedChampion.gamesPlayed).toFixed(0)} / {(mostPlayedChampion.assists / mostPlayedChampion.gamesPlayed).toFixed(0)}</p>
                     <p>Win Rate: {((mostPlayedChampion.wins / mostPlayedChampion.gamesPlayed) * 100).toFixed(0)}%</p>
                 </div>
                 </div>
