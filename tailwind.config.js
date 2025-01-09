@@ -20,6 +20,7 @@ module.exports = {
       'plume': '#2e2b4d',
       'darker-plume': '#140919',
       'dark-plume': '#050205',
+      'red': '#FF0000',
     },
     fontFamily: {
       sans: ['Graphik', 'sans-serif'],

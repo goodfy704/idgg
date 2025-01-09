@@ -153,10 +153,10 @@ const PlayerTier = (league, queueType) => {
 function RankedSolo({ league }) {
     return (
         <div>
-        <div className="mt-8 ml-8 w-2/5">
+        <div className="mt-8 ml-8 w-2/3">
         {JSON.stringify(league[0]) !== '{}' ?
         <>
-            <p>Ranked solo</p>
+            <h1 className="text-lg">Ranked solo</h1>
             <div className="grid grid-cols-10">
                 <div className="col-span-2">
                     {PlayerTier(league, league[0].queueType)}  
@@ -198,10 +198,10 @@ function RankedSolo({ league }) {
             </>
             }
         </div>
-        <div className="mt-8 ml-8 w-2/5">
+        <div className="mt-8 ml-8 w-2/3">
         {JSON.stringify(league[1]) !== '{}' ?
         <>
-        <p>Ranked flex</p>
+        <h1 className="text-lg">Ranked flex</h1>
         <div className="grid grid-cols-10">
             <div className="col-span-2">
                 {PlayerTier(league, league[1].queueType)}   
