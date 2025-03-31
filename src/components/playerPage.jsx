@@ -198,7 +198,7 @@ console.log("this is champStats", championStats, "this is aggregatedStats", aggr
 const mostPlayedChampion = getMostPlayedChampion(championStats);
 
     return <div className="text-white grid gap-4 grid-cols-1 place-content-start">
-        <div className="w-screen pt-64 bg-gradient-to-r from-darker-plume via-dark-plume to-darker-plume border-b-2 hover:drop-shadow-goldish border-plume ">
+        <div className="w-screen pt-64 bg-linear-to-r from-darker-plume via-dark-plume to-darker-plume border-b-2 hover:drop-shadow-goldish border-plume ">
 
                 <div className="flex justify-center">
                     {JSON.stringify(summoner) !== '{}' ?
@@ -216,7 +216,7 @@ const mostPlayedChampion = getMostPlayedChampion(championStats);
             </div>
         </div>
         <div className="grid grid-cols-2 grid-rows-4 h-1/3 gap-4 ml-32">
-            <div className="rounded-xl mt-8 grid grid-cols-5 bg-black-russian bg-opacity-35 border-2 transition ease-in-out delay-150 border-dark-silver drop-shadow-plume hover:drop-shadow-goldish"> 
+            <div className="rounded-xl mt-8 grid grid-cols-5 bg-black-russian/35 border-2 transition ease-in-out delay-150 border-dark-silver drop-shadow-plume hover:drop-shadow-goldish"> 
                 <div className="col-span-3">
                     <RankedSolo league={league} />
                 </div>
@@ -238,13 +238,13 @@ const mostPlayedChampion = getMostPlayedChampion(championStats);
         )}
                 </div>
             </div>
-                <div className="relative mt-8 border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid grid-cols-1 h-max max-w-screen-lg">
+                <div className="relative mt-8 border-2 bg-black-russian/35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid grid-cols-1 h-max max-w-(--breakpoint-lg)">
                     {gameList.length !== 0 ?
                     <>
                     {   
                     gameList.map((gameData, index) =>
                     <div key={`game-${index}`} className={`first:mt-4 mb-4 mr-4 ml-4 grid grid-cols-3 grid-flow-row transition ease-in-out delay-150 border-2 rounded-xl drop-shadow-plume hover:drop-shadow-goldish
-                        ${getPlayerPUUID(gameData, summoner.puuid)?.win ? 'from-green/5 via-green/5 via-5% to-transparent bg-gradient-to-r' : 'from-red/5 to-transparent bg-gradient-to-r via-5%'}`}>
+                        ${getPlayerPUUID(gameData, summoner.puuid)?.win ? 'from-green/5 via-green/5 via-5% to-transparent bg-linear-to-r' : 'from-red/5 to-transparent bg-linear-to-r via-5%'}`}>
                         <div className="m-8 ml-12"> 
                             <MatchTimeAndQueueType gameData={gameData}/>
                         </div>
@@ -272,7 +272,7 @@ const mostPlayedChampion = getMostPlayedChampion(championStats);
                     </>
                 }
                 </div>
-            <div className="border-2 bg-black-russian bg-opacity-35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
+            <div className="border-2 bg-black-russian/35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
                 <div className="mt-8 ml-8">
                     Champion stats
                     <div>
