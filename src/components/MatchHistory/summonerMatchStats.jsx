@@ -1,5 +1,5 @@
 import {useState, useEffect} from 'react';
-import ChampionStats from './championStats';
+import ChampionStats from '../ChampionsPlayed/championStats';
 
 const processChampionStats = (gameList, summonerPUUID) => {
     const championStats = {};

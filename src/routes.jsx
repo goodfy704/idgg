@@ -1,5 +1,5 @@
 import {BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Home from './components/home';
+import Home from './components/HomePage/home';
 import NotFoundPage from './components/NotFoundPage';
 import PlayerPage from './components/playerPage'
 import TooManyRequests from './components/tooManyRequests';

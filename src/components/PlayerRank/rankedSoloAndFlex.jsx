@@ -1,15 +1,15 @@
 import React from "react";
 
-import iron from "../assets/iron.png"
-import bronze from "../assets/bronze.png"
-import silver from "../assets/silver.png"
-import gold from "../assets/gold.png"
-import platinum from "../assets/platinum.png"
-import emerald from "../assets/emerald.png"
-import diamond from "../assets/diamond.png"
-import master from "../assets/master.png"
-import grandmaster from "../assets/grandmaster.png"
-import challenger from "../assets/challenger.png"
+import iron from "../../assets/iron.png"
+import bronze from "../../assets/bronze.png"
+import silver from "../../assets/silver.png"
+import gold from "../../assets/gold.png"
+import platinum from "../../assets/platinum.png"
+import emerald from "../../assets/emerald.png"
+import diamond from "../../assets/diamond.png"
+import master from "../../assets/master.png"
+import grandmaster from "../../assets/grandmaster.png"
+import challenger from "../../assets/challenger.png"
 
 const tierImages = {
     IRON: iron,

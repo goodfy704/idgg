@@ -2,15 +2,15 @@ import {useState, useEffect} from 'react';
 import axios, { HttpStatusCode } from 'axios';
 import { useParams, useNavigate } from 'react-router-dom'; 
 
-import RankedSolo from './rankedSoloAndFlex';
-import SummonerKeystones from './summonerKeystones';
-import SummonerItems from './summonerItems';
-import MatchTimeAndQueueType from './matchTimeAndQueueType';
-import MatchParticipants from './matchParticipants';
+import RankedSolo from './PlayerRank/rankedSoloAndFlex';
+import SummonerKeystones from './MatchHistory/summonerKeystones';
+import SummonerItems from './MatchHistory/summonerItems';
+import MatchTimeAndQueueType from './MatchHistory/matchTimeAndQueueType';
+import MatchParticipants from './MatchHistory/matchParticipants';
 import SummonerProfile from './summonerProfile';
 import NotFoundPage from './NotFoundPage';
-import SummonerMatchStats from './summonerMatchStats';
-import LastGamesStatistics from './lastGamesStatistics';
+import SummonerMatchStats from './MatchHistory/summonerMatchStats';
+import LastGamesStatistics from './PlayerRank/lastGamesStatistics';
 
 function PlayerPage() {
     const [gameList, setGameList] = useState([]);
