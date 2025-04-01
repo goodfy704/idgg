@@ -3,8 +3,8 @@ import AppRoutes from './routes.jsx';
 
 function App() {
   return (
-    <div className="bg-black-russian min-h-screen grid">
-      <div className="w-full flex">
+    <div className="bg-black-russian h-screen">
+      <div>
         <AppRoutes />
       </div>
     </div>  
