@@ -11,7 +11,7 @@ function AppRoutes() {
                 <Route path="/" element={<Home />} />
                 <Route path="/notFound" element={<NotFoundPage />} />
                 <Route path="/tooManyRequests" element={<TooManyRequests />} />
-                <Route path="/:searchedPlayer" element={<PlayerPage />} />
+                <Route path="/player/:gameName/:tagLine" element={<PlayerPage />} />
             </Routes>
         </Router>
     );

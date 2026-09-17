@@ -29,13 +29,10 @@ type RiotAccount = {
     puuid: string;
 };
 
-type SummonerLookup = {
-    id?: string;
-};
-
-type SummonerLocation = {
-    summonerID: string | null;
-    subRegion: string | null;
+type SummonerData = {
+    puuid: string;
+    profileIconId: number;
+    summonerLevel: number;
 };
 
 type MatchParticipant = {
@@ -61,6 +58,47 @@ type ChampionTotals = {
     assists: number;
 };
 
+type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
+
+const platforms = [
+    'br1', 'eun1', 'euw1', 'jp1', 'kr', 'la1', 'la2', 'me1', 'na1',
+    'oc1', 'ph2', 'ru', 'sg2', 'th2', 'tr1', 'tw2', 'vn2',
+] as const;
+
+type Platform = typeof platforms[number];
+
+const platformToRegionalRoute: Record<Platform, RegionalRoute> = {
+    br1: 'americas',
+    eun1: 'europe',
+    euw1: 'europe',
+    jp1: 'asia',
+    kr: 'asia',
+    la1: 'americas',
+    la2: 'americas',
+    me1: 'europe',
+    na1: 'americas',
+    oc1: 'sea',
+    ph2: 'sea',
+    ru: 'europe',
+    sg2: 'sea',
+    th2: 'sea',
+    tr1: 'europe',
+    tw2: 'sea',
+    vn2: 'sea',
+};
+
+type PlayerQuery = {
+    gameName: string;
+    tagLine: string;
+};
+
+type PlayerLocation = {
+    PUUID: string;
+    platform: Platform;
+    regionalRoute: RegionalRoute;
+    summoner: SummonerData;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> => (
     typeof value === 'object' && value !== null
 );
@@ -69,8 +107,11 @@ const isRiotAccount = (value: unknown): value is RiotAccount => (
     isRecord(value) && typeof value.puuid === 'string'
 );
 
-const isSummonerLookup = (value: unknown): value is SummonerLookup => (
-    isRecord(value) && (value.id === undefined || typeof value.id === 'string')
+const isSummonerData = (value: unknown): value is SummonerData => (
+    isRecord(value)
+    && typeof value.puuid === 'string'
+    && typeof value.profileIconId === 'number'
+    && typeof value.summonerLevel === 'number'
 );
 
 const isStringArray = (value: unknown): value is string[] => (
@@ -93,6 +134,39 @@ const isMatchData = (value: unknown): value is MatchData => (
     && Array.isArray(value.info.participants)
     && value.info.participants.every(isMatchParticipant)
 );
+
+const isValidGameName = (value: string) => {
+    const length = Array.from(value).length;
+    return length >= 3 && length <= 16 && !value.includes('#');
+};
+
+const isValidTagLine = (value: string) => /^[\p{L}\p{N}]{3,5}$/u.test(value);
+
+const getPlayerQuery = (request: HttpRequest): PlayerQuery | null => {
+    const gameName = request.query.gameName;
+    const tagLine = request.query.tagLine;
+
+    if (typeof gameName !== 'string' || typeof tagLine !== 'string') {
+        return null;
+    }
+
+    const normalizedGameName = gameName.trim();
+    const normalizedTagLine = tagLine.trim();
+
+    if (
+        !isValidGameName(normalizedGameName)
+        || !isValidTagLine(normalizedTagLine)
+    ) {
+        return null;
+    }
+
+    return {
+        gameName: normalizedGameName,
+        tagLine: normalizedTagLine,
+    };
+};
+
+const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
 const express: ExpressFactory = require('express');
 const cors: CorsFactory = require('cors');
@@ -121,14 +195,6 @@ app.listen(4000, function () {
     console.log("Server started on port 4000");
 });
 
-const subRegions = ['br1','euw1', 'eun1', 'jp1','kr','la1','la2','me1','na1','oc1','ph2','ru','sg2','th2','tr1','tw2','vn2'];
-const regionToSubRegionMap: Record<string, string[]> = {
-    'europe': ['euw1', 'eun1', 'ru', 'tr1', 'me1'],
-    'americas': ['na1', 'la1', 'la2', 'br1'],
-    'asia': ['kr', 'jp1', 'sg2', 'th2', 'tw2', 'vn2'],
-    'esports': ['oc1', 'ph2']
-};
-
 async function fetchWithRetry(url: string, res?: HttpResponse): Promise<AxiosResponse<unknown>> {
     try {
         return await limiter.schedule(() => riotClient.get<unknown>(url));
@@ -153,8 +219,13 @@ async function fetchWithRetry(url: string, res?: HttpResponse): Promise<AxiosRes
     }
 }
 
-async function getPlayerPUUID(playerName: string, playerTag: string): Promise<string> {
-    const apiUrl = "https://europe.api.riotgames.com" + "/riot/account/v1/accounts/by-riot-id/" + playerName + "/" + playerTag;
+async function getPlayerPUUID(
+    playerName: string,
+    playerTag: string
+): Promise<string> {
+    const encodedPlayerName = encodeURIComponent(playerName);
+    const encodedPlayerTag = encodeURIComponent(playerTag);
+    const apiUrl = `https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodedPlayerName}/${encodedPlayerTag}`;
     const response = await riotClient.get<unknown>(apiUrl);
 
     if (!isRiotAccount(response.data)) {
@@ -165,57 +236,77 @@ async function getPlayerPUUID(playerName: string, playerTag: string): Promise<st
     return response.data.puuid;
 }
 
-async function getSummonerID(PUUID: string): Promise<SummonerLocation> {
-    for (let subRegion of subRegions) {
+async function lookupPlayerLocation(gameName: string, tagLine: string): Promise<PlayerLocation | null> {
+    const PUUID = await getPlayerPUUID(gameName, tagLine);
+    const encodedPUUID = encodeURIComponent(PUUID);
+
+    for (const platform of platforms) {
         try {
-            const apiUrl = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}`;
+            const apiUrl = `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodedPUUID}`;
             const response = await riotClient.get<unknown>(apiUrl);
 
-            if (isSummonerLookup(response.data) && response.data.id) {
-                console.log(`Summoner found: ${response.data.id}, subRegion: ${subRegion}`);
-                return { summonerID: response.data.id, subRegion };
+            if (!isSummonerData(response.data) || response.data.puuid !== PUUID) {
+                throw new Error('Riot summoner response is invalid.');
             }
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unknown error';
 
-            if (axios.isAxiosError(err) && err.response?.status === 404) {
-                console.error(`Summoner not found in ${subRegion}: ${message}`);
-            } else {
-                console.error(`Error fetching summoner from ${subRegion}: ${message}`);
+            return {
+                PUUID,
+                platform,
+                regionalRoute: platformToRegionalRoute[platform],
+                summoner: response.data,
+            };
+        } catch (error: unknown) {
+            if (axios.isAxiosError(error) && error.response?.status === 404) {
+                continue;
             }
-            continue;
+
+            throw error;
         }
     }
-    console.error('Summoner not found in any subRegion.');
-    return { summonerID: null, subRegion: null };
+
+    return null;
+}
+
+async function getPlayerLocation(gameName: string, tagLine: string): Promise<PlayerLocation | null> {
+    const lookupKey = `${gameName}#${tagLine}`;
+    const activeLookup = playerLocationLookups.get(lookupKey);
+
+    if (activeLookup) {
+        return activeLookup;
+    }
+
+    const lookup = lookupPlayerLocation(gameName, tagLine);
+    playerLocationLookups.set(lookupKey, lookup);
+
+    try {
+        return await lookup;
+    } finally {
+        if (playerLocationLookups.get(lookupKey) === lookup) {
+            playerLocationLookups.delete(lookupKey);
+        }
+    }
 }
 
 app.get('/past5Games', async (req, res) => {
-    const userInput = req.query.userInput;
+    const playerQuery = getPlayerQuery(req);
 
-    if (typeof userInput !== 'string' || userInput.length === 0) {
-        return res.status(400).json({ message: 'userInput is required.' });
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
-    const username = userInput.split("-")[0];
-    const tag = userInput.split("-")[1];
-    const PUUID = await getPlayerPUUID(username, tag);
-
-    const { summonerID, subRegion } = await getSummonerID(PUUID);
-
-    if (!summonerID || !subRegion) {
-        return res.status(404).json({ message: 'summonerID and subRegion bb bb' });
-    }
-    const mainRegion = Object.keys(regionToSubRegionMap).find(region =>
-        regionToSubRegionMap[region].includes(subRegion)
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
     );
 
-    if (!mainRegion) {
-        return res.status(400).json({ message: 'Main region could not be determined.' });
+    if (!playerLocation) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
     }
-    console.log(mainRegion);
 
-    const API_CALL = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/by-puuid/${PUUID}/ids`;
+    const { PUUID, regionalRoute } = playerLocation;
+    const encodedPUUID = encodeURIComponent(PUUID);
+
+    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids`;
 
     const gameIDsResponse = await fetchWithRetry(API_CALL, res);
 
@@ -228,7 +319,7 @@ app.get('/past5Games', async (req, res) => {
     const matchDataArray: unknown[] = [];
     for (let i = 0; i < gameIDs.length-10; i++) {
         const matchID = gameIDs[i];
-        const matchIDAPI = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/${matchID}`;
+        const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
         const matchResponse = await fetchWithRetry(matchIDAPI, res);
         matchDataArray.push(matchResponse.data);
     }
@@ -237,45 +328,41 @@ app.get('/past5Games', async (req, res) => {
 });
 
 app.get('/summoner', async (req, res) => {
-    const userInput = req.query.userInput;
+    const playerQuery = getPlayerQuery(req);
 
-    if (typeof userInput !== 'string' || userInput.length === 0) {
-        return res.status(400).json({ message: 'userInput is required.' });
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
-    const username = userInput.split("-")[0];
-    const tag = userInput.split("-")[1];
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
 
-    const PUUID = await getPlayerPUUID(username, tag);
-    const { summonerID, subRegion } = await getSummonerID(PUUID);
-
-    if (!summonerID || !subRegion) {
-        return res.status(404).json({ message: 'summonerID and subRegion bb bb' });
+    if (!playerLocation) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
     }
-    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}`;
 
-    const summonerResponse = await riotClient.get<unknown>(API_CALL);
-
-    res.json(summonerResponse.data);
+    res.json(playerLocation.summoner);
 });
 
 app.get('/league', async (req, res) => {
-    const userInput = req.query.userInput;
+    const playerQuery = getPlayerQuery(req);
 
-    if (typeof userInput !== 'string' || userInput.length === 0) {
-        return res.status(400).json({ message: 'userInput is required.' });
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
-    const username = userInput.split("-")[0];
-    const tag = userInput.split("-")[1];
-    const PUUID = await getPlayerPUUID(username, tag);
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
 
-    const { summonerID, subRegion } = await getSummonerID(PUUID);
-
-    if (!summonerID || !subRegion) {
-        return res.status(404).json({ message: 'summonerID and subRegion bb bb' });
+    if (!playerLocation) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
     }
-    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/league/v4/entries/by-summoner/${summonerID}`;
+
+    const API_CALL = `https://${playerLocation.platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(playerLocation.PUUID)}`;
 
     const leagueResponse = await riotClient.get<unknown>(API_CALL);
 
@@ -283,16 +370,24 @@ app.get('/league', async (req, res) => {
 });
 
 app.get('/championStats', async (req, res) => {
-    const userInput = req.query.userInput;
+    const playerQuery = getPlayerQuery(req);
 
-    if (typeof userInput !== 'string' || userInput.length === 0) {
-        return res.status(400).json({ message: 'userInput is required.' });
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
-    const username = userInput.split("-")[0];
-    const tag = userInput.split("-")[1];
-    const PUUID = await getPlayerPUUID(username, tag);
-    const API_CALL = "https://europe.api.riotgames.com/" + "lol/match/v5/matches/by-puuid/" + PUUID + "/ids?start=0&count=25";
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
+
+    if (!playerLocation) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
+    }
+
+    const { PUUID, regionalRoute } = playerLocation;
+    const encodedPUUID = encodeURIComponent(PUUID);
+    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=25`;
 
     let gameIDs: string[];
 
@@ -318,7 +413,7 @@ app.get('/championStats', async (req, res) => {
 
     const processBatch = async (batch: string[]) => {
         for (const matchID of batch) {
-            const matchAPI = `https://europe.api.riotgames.com/lol/match/v5/matches/${matchID}`;
+            const matchAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
             const matchResponse = await fetchWithRetry(matchAPI);
 
             if (!isMatchData(matchResponse.data)) {

@@ -22,8 +22,7 @@ function MatchParticipants({ gameData, championsUrl }: MatchParticipantsProps) {
     ];
 
     const handlePlayerClick = (gameName: string, tagLine: string) => {
-        const formattedSearchText = `${gameName}-${tagLine}`;
-        navigate(`/${encodeURIComponent(formattedSearchText)}`);
+        navigate(`/player/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`);
     };
 
     return (
