@@ -62,6 +62,8 @@ type ChampionTotals = {
 
 type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
 
+const recentMatchCount = 10;
+
 const platforms = [
     'br1', 'eun1', 'euw1', 'jp1', 'kr', 'la1', 'la2', 'me1', 'na1',
     'oc1', 'ph2', 'ru', 'sg2', 'th2', 'tr1', 'tw2', 'vn2',
@@ -321,19 +323,18 @@ app.get('/past5Games', withErrorBoundary(async (req, res) => {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
 
-    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids`;
+    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=${recentMatchCount}`;
 
     const gameIDsData = await requestRiot(API_CALL);
 
-    if (!isStringArray(gameIDsData)) {
+    if (!isStringArray(gameIDsData) || gameIDsData.length > recentMatchCount) {
         throw new RiotResponseError();
     }
 
     const gameIDs = gameIDsData;
 
     const matchDataArray: unknown[] = [];
-    for (let i = 0; i < gameIDs.length-10; i++) {
-        const matchID = gameIDs[i];
+    for (const matchID of gameIDs) {
         const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
         const matchData = await requestRiot(matchIDAPI);
         matchDataArray.push(matchData);
