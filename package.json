@@ -13,12 +13,13 @@
     "react": "^18.3.1",
     "react-circular-progressbar": "^2.1.0",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.27.0",
+    "react-router-dom": "^7.18.4",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
     "serve": "vite preview"
   },
   "eslintConfig": {
@@ -40,8 +41,14 @@
     ]
   },
   "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.17",
+    "typescript": "^7.0.2",
     "vite": "^6.2.4"
+  },
+  "allowScripts": {
+    "esbuild": true
   }
 }
