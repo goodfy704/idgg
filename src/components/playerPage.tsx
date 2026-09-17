@@ -78,6 +78,13 @@ const summonerUrl = 'https://ddragon.leagueoflegends.com/cdn/15.1.1/img/spell/';
 const runesUrl = 'https://ddragon.leagueoflegends.com/cdn/img/perk-images/Styles/';
 const itemUrl = 'https://ddragon.leagueoflegends.com/cdn/15.1.1/img/item/';
 
+const isValidGameName = (value: string) => {
+    const length = Array.from(value).length;
+    return length >= 3 && length <= 16 && !value.includes('#');
+};
+
+const isValidTagLine = (value: string) => /^[\p{L}\p{N}]{3,5}$/u.test(value);
+
 const isRecord = (value: unknown): value is Record<string, unknown> => (
     typeof value === 'object' && value !== null
 );
@@ -253,14 +260,15 @@ function PlayerPage() {
     const [league, setLeague] = useState<(LeagueEntry | null)[]>([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
-    const { searchedPlayer } = useParams<{ searchedPlayer: string }>();
-
-    const separatorIndex = searchedPlayer?.lastIndexOf('-') ?? -1;
-    const playerName = separatorIndex > 0 ? searchedPlayer?.slice(0, separatorIndex) ?? '' : searchedPlayer ?? '';
-    const tagLine = separatorIndex > 0 ? searchedPlayer?.slice(separatorIndex + 1) ?? '' : '';
+    const { gameName, tagLine } = useParams<{
+        gameName: string;
+        tagLine: string;
+    }>();
+    const playerName = gameName?.trim() ?? '';
+    const playerTagLine = tagLine?.trim() ?? '';
 
     useEffect(() => {
-        if (!searchedPlayer) {
+        if (!isValidGameName(playerName) || !isValidTagLine(playerTagLine)) {
             setLoading(false);
             navigate('/notFound');
             return;
@@ -273,7 +281,10 @@ function PlayerPage() {
             try {
                 setLoading(true);
                 const requestConfig = {
-                    params: { userInput: searchedPlayer },
+                    params: {
+                        gameName: playerName,
+                        tagLine: playerTagLine,
+                    },
                     signal: controller.signal,
                 };
                 const [gamesResponse, summonerResponse, leagueResponse] = await Promise.all([
@@ -324,7 +335,7 @@ function PlayerPage() {
             active = false;
             controller.abort();
         };
-    }, [navigate, searchedPlayer]);
+    }, [navigate, playerName, playerTagLine]);
 
     if (loading) {
         return (
@@ -342,29 +353,29 @@ function PlayerPage() {
     const mostPlayedChampion = getMostPlayedChampion(championStats);
 
     return (
-        <div className="text-white grid gap-4 grid-cols-1 place-content-start">
-            <div className="w-screen pt-64 bg-linear-to-r from-darker-plume via-dark-plume to-darker-plume border-b-2 hover:drop-shadow-goldish border-plume">
-                <div className="flex justify-center">
-                    <SummonerProfile summoner={summoner} playerName={playerName} tagLine={tagLine} />
+        <div className="min-h-screen w-full text-white">
+            <div className="w-full bg-linear-to-r from-darker-plume via-dark-plume to-darker-plume border-b-2 border-plume hover:drop-shadow-goldish">
+                <div className="w-full max-w-7xl mx-auto px-4 py-8">
+                    <SummonerProfile summoner={summoner} playerName={playerName} tagLine={playerTagLine} />
                 </div>
             </div>
-            <div className="grid grid-cols-2 grid-rows-4 h-1/3 gap-4 ml-32">
-                <div className="rounded-xl mt-8 grid grid-cols-5 bg-black-russian/35 border-2 transition ease-in-out delay-150 border-dark-silver drop-shadow-plume hover:drop-shadow-goldish">
-                    <div className="col-span-3">
+            <div className="w-full max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                <div className="min-w-0 rounded-xl grid grid-cols-1 lg:grid-cols-5 bg-black-russian/35 border-2 border-dark-silver transition ease-in-out delay-150 drop-shadow-plume hover:drop-shadow-goldish overflow-hidden">
+                    <div className="min-w-0 lg:col-span-3">
                         <RankedSolo league={league} />
                     </div>
-                    <div className="col-span-2">
+                    <div className="min-w-0 lg:col-span-2">
                         <LastGamesStatistics gameList={aggregatedStats} />
                         {mostPlayedChampion && (
-                            <div className="col-span-5 mt-4">
+                            <div className="mt-4 px-4 pb-4">
                                 <h3 className="text-lg text-center mb-5">Your most played champion</h3>
-                                <div className="grid grid-cols-4">
+                                <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-4 items-start">
                                     <img
-                                        className="w-20 h-20"
+                                        className="w-20 h-20 object-cover"
                                         alt={mostPlayedChampion.championName}
                                         src={`${championsUrl}${mostPlayedChampion.championName}/square`}
                                     />
-                                    <div className="col-span-3">
+                                    <div className="min-w-0">
                                         <p>Games Played: {mostPlayedChampion.gamesPlayed}</p>
                                         <p>
                                             KDA: {(mostPlayedChampion.kills / mostPlayedChampion.gamesPlayed).toFixed(0)} / {(mostPlayedChampion.deaths / mostPlayedChampion.gamesPlayed).toFixed(0)} / {(mostPlayedChampion.assists / mostPlayedChampion.gamesPlayed).toFixed(0)}
@@ -378,7 +389,7 @@ function PlayerPage() {
                         )}
                     </div>
                 </div>
-                <div className="relative mt-8 border-2 bg-black-russian/35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid grid-cols-1 h-max max-w-(--breakpoint-lg)">
+                <div className="min-w-0 w-full border-2 bg-black-russian/35 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish transition ease-in-out delay-150 overflow-hidden">
                     {gameList.length > 0 ? gameList.map(gameData => {
                         const player = gameData.info.participants.find(
                             participant => participant.puuid === summoner.puuid
@@ -387,12 +398,12 @@ function PlayerPage() {
                         return (
                             <div
                                 key={gameData.metadata.matchId}
-                                className={`first:mt-4 mb-4 mr-4 ml-4 grid grid-cols-3 grid-flow-row transition ease-in-out delay-150 border-2 rounded-xl drop-shadow-plume hover:drop-shadow-goldish ${player?.win ? 'from-green/5 via-green/5 via-5% to-transparent bg-linear-to-r' : 'from-red/5 to-transparent bg-linear-to-r via-5%'}`}
+                                className={`first:mt-4 mx-4 mb-4 min-w-0 grid grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)] gap-4 transition ease-in-out delay-150 border-2 rounded-xl drop-shadow-plume hover:drop-shadow-goldish overflow-hidden ${player?.win ? 'from-green/5 via-green/5 via-5% to-transparent bg-linear-to-r' : 'from-red/5 via-5% to-transparent bg-linear-to-r'}`}
                             >
-                                <div className="m-8 ml-12">
+                                <div className="min-w-0 p-6">
                                     <MatchTimeAndQueueType gameData={gameData} />
                                 </div>
-                                <div>
+                                <div className="min-w-0 py-4">
                                     <SummonerKeystones
                                         gameData={gameData}
                                         summoner={summoner}
@@ -406,17 +417,19 @@ function PlayerPage() {
                                         itemUrl={itemUrl}
                                     />
                                 </div>
-                                <MatchParticipants gameData={gameData} championsUrl={championsUrl} />
+                                <div className="min-w-0 overflow-hidden py-4">
+                                    <MatchParticipants gameData={gameData} championsUrl={championsUrl} />
+                                </div>
                             </div>
                         );
                     }) : (
-                        <p className="text-white">Empty</p>
+                        <p className="text-white p-4">Empty</p>
                     )}
                 </div>
-                <div className="border-2 bg-black-russian/35 transition ease-in-out delay-150 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish grid">
-                    <div className="mt-8 ml-8">
+                <div className="min-w-0 border-2 bg-black-russian/35 border-dark-silver rounded-xl drop-shadow-plume hover:drop-shadow-goldish transition ease-in-out delay-150 overflow-hidden">
+                    <div className="p-8">
                         Champion stats
-                        <div>
+                        <div className="min-w-0">
                             <SummonerMatchStats gameList={gameList} summoner={summoner} />
                         </div>
                     </div>
