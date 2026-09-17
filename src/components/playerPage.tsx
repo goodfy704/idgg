@@ -65,6 +65,12 @@ type Summoner = {
     summonerLevel: number;
 };
 
+type PlayerReport = {
+    summoner: Summoner;
+    league: LeagueEntry[];
+    games: MatchData[];
+};
+
 type ChampionTotals = {
     gamesPlayed: number;
     wins: number;
@@ -149,6 +155,15 @@ const isLeagueEntry = (value: unknown): value is LeagueEntry => (
     && typeof value.leaguePoints === 'number'
     && typeof value.wins === 'number'
     && typeof value.losses === 'number'
+);
+
+const isPlayerReport = (value: unknown): value is PlayerReport => (
+    isRecord(value)
+    && isSummoner(value.summoner)
+    && Array.isArray(value.league)
+    && value.league.every(isLeagueEntry)
+    && Array.isArray(value.games)
+    && value.games.every(isMatchData)
 );
 
 const arrangeLeagueEntries = (entries: LeagueEntry[]): (LeagueEntry | null)[] => {
@@ -287,31 +302,20 @@ function PlayerPage() {
                     },
                     signal: controller.signal,
                 };
-                const [gamesResponse, summonerResponse, leagueResponse] = await Promise.all([
-                    axios.get<unknown>('http://localhost:4000/past5Games', requestConfig),
-                    axios.get<unknown>('http://localhost:4000/summoner', requestConfig),
-                    axios.get<unknown>('http://localhost:4000/league', requestConfig),
-                ]);
+                const reportResponse = await axios.get<unknown>('/api/report', requestConfig);
 
                 if (!active) {
                     return;
                 }
 
-                if (!isSummoner(summonerResponse.data)) {
-                    navigate('/notFound');
+                if (!isPlayerReport(reportResponse.data)) {
+                    navigate('/tooManyRequests');
                     return;
                 }
 
-                const games = Array.isArray(gamesResponse.data)
-                    ? gamesResponse.data.filter(isMatchData)
-                    : [];
-                const leagueEntries = Array.isArray(leagueResponse.data)
-                    ? leagueResponse.data.filter(isLeagueEntry)
-                    : [];
-
-                setSummoner(summonerResponse.data);
-                setGameList(games);
-                setLeague(arrangeLeagueEntries(leagueEntries));
+                setSummoner(reportResponse.data.summoner);
+                setGameList(reportResponse.data.games);
+                setLeague(arrangeLeagueEntries(reportResponse.data.league));
             } catch (error: unknown) {
                 if (axios.isAxiosError(error) && error.code === 'ERR_CANCELED') {
                     return;

@@ -19,13 +19,11 @@ type RequestHandler = (request: HttpRequest, response: HttpResponse) => unknown;
 type AsyncRequestHandler = (request: HttpRequest, response: HttpResponse) => Promise<unknown>;
 
 type ExpressApplication = {
-    use: (middleware: unknown) => void;
     listen: (port: number, callback: () => void) => void;
     get: (path: string, handler: RequestHandler) => void;
 };
 
 type ExpressFactory = () => ExpressApplication;
-type CorsFactory = () => unknown;
 
 type RiotAccount = {
     puuid: string;
@@ -173,10 +171,7 @@ const getPlayerQuery = (request: HttpRequest): PlayerQuery | null => {
 const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
 const express: ExpressFactory = require('express');
-const cors: CorsFactory = require('cors');
 const app = express();
-
-app.use(cors());
 
 app.listen(4000, function () {
     console.log("Server started on port 4000");
@@ -304,84 +299,57 @@ async function getPlayerLocation(gameName: string, tagLine: string): Promise<Pla
     }
 }
 
-app.get('/past5Games', withErrorBoundary(async (req, res) => {
-    const playerQuery = getPlayerQuery(req);
-
-    if (!playerQuery) {
-        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
-    }
-
-    const playerLocation = await getPlayerLocation(
-        playerQuery.gameName,
-        playerQuery.tagLine
-    );
-
-    if (!playerLocation) {
-        return res.status(404).json({ message: 'Player platform could not be found.' });
-    }
-
+async function getRecentMatches(playerLocation: PlayerLocation): Promise<unknown[]> {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
-
     const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=${recentMatchCount}`;
-
     const gameIDsData = await requestRiot(API_CALL);
 
     if (!isStringArray(gameIDsData) || gameIDsData.length > recentMatchCount) {
         throw new RiotResponseError();
     }
 
-    const gameIDs = gameIDsData;
-
     const matchDataArray: unknown[] = [];
-    for (const matchID of gameIDs) {
+    for (const matchID of gameIDsData) {
         const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
         const matchData = await requestRiot(matchIDAPI);
         matchDataArray.push(matchData);
     }
 
-    res.json(matchDataArray);
-}));
+    return matchDataArray;
+}
 
-app.get('/summoner', withErrorBoundary(async (req, res) => {
-    const playerQuery = getPlayerQuery(req);
-
-    if (!playerQuery) {
-        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
-    }
-
-    const playerLocation = await getPlayerLocation(
-        playerQuery.gameName,
-        playerQuery.tagLine
-    );
-
-    if (!playerLocation) {
-        return res.status(404).json({ message: 'Player platform could not be found.' });
-    }
-
-    res.json(playerLocation.summoner);
-}));
-
-app.get('/league', withErrorBoundary(async (req, res) => {
-    const playerQuery = getPlayerQuery(req);
-
-    if (!playerQuery) {
-        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
-    }
-
-    const playerLocation = await getPlayerLocation(
-        playerQuery.gameName,
-        playerQuery.tagLine
-    );
-
-    if (!playerLocation) {
-        return res.status(404).json({ message: 'Player platform could not be found.' });
-    }
-
+async function getLeagueEntries(playerLocation: PlayerLocation): Promise<unknown> {
     const API_CALL = `https://${playerLocation.platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(playerLocation.PUUID)}`;
-    const leagueData = await requestRiot(API_CALL);
+    return requestRiot(API_CALL);
+}
 
-    res.json(leagueData);
+app.get('/api/report', withErrorBoundary(async (req, res) => {
+    const playerQuery = getPlayerQuery(req);
+
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
+    }
+
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
+
+    if (!playerLocation) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
+    }
+
+    const [games, league] = await Promise.all([
+        getRecentMatches(playerLocation),
+        getLeagueEntries(playerLocation),
+    ]);
+
+    res.json({
+        summoner: playerLocation.summoner,
+        league,
+        games,
+    });
 }));
 
 app.get('/championStats', withErrorBoundary(async (req, res) => {
