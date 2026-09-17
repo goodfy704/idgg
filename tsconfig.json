@@ -12,11 +12,9 @@
         "forceConsistentCasingInFileNames": true,
         "skipLibCheck": true,
         "noEmit": true,
-        "allowJs": true,
-        "checkJs": false,
         "types": ["vite/client"]
     },
-    "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.jsx"],
+    "include": ["src/**/*.ts", "src/**/*.tsx"],
     "exclude": [
         "node_modules",
         "dist",
