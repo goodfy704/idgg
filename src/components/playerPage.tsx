@@ -80,9 +80,8 @@ type ChampionTotals = {
 };
 
 const championsUrl = 'https://cdn.communitydragon.org/latest/champion/';
-const summonerUrl = 'https://ddragon.leagueoflegends.com/cdn/15.1.1/img/spell/';
+const dataDragonVersionsUrl = 'https://ddragon.leagueoflegends.com/api/versions.json';
 const runesUrl = 'https://ddragon.leagueoflegends.com/cdn/img/perk-images/Styles/';
-const itemUrl = 'https://ddragon.leagueoflegends.com/cdn/15.1.1/img/item/';
 
 const isValidGameName = (value: string) => {
     const length = Array.from(value).length;
@@ -165,6 +164,20 @@ const isPlayerReport = (value: unknown): value is PlayerReport => (
     && Array.isArray(value.games)
     && value.games.every(isMatchData)
 );
+
+const getLatestDataDragonVersion = (value: unknown): string | null => {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const latestVersion = value[0];
+
+    if (typeof latestVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(latestVersion)) {
+        return null;
+    }
+
+    return latestVersion;
+};
 
 const arrangeLeagueEntries = (entries: LeagueEntry[]): (LeagueEntry | null)[] => {
     const rankedSolo = entries.find(entry => entry.queueType === 'RANKED_SOLO_5x5') ?? null;
@@ -273,6 +286,7 @@ function PlayerPage() {
     const [gameList, setGameList] = useState<MatchData[]>([]);
     const [summoner, setSummoner] = useState<Summoner | null>(null);
     const [league, setLeague] = useState<(LeagueEntry | null)[]>([]);
+    const [dataDragonVersion, setDataDragonVersion] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
     const { gameName, tagLine } = useParams<{
@@ -302,13 +316,22 @@ function PlayerPage() {
                     },
                     signal: controller.signal,
                 };
-                const reportResponse = await axios.get<unknown>('/api/report', requestConfig);
+                const [reportResponse, dataDragonVersionsResponse] = await Promise.all([
+                    axios.get<unknown>('/api/report', requestConfig),
+                    axios.get<unknown>(dataDragonVersionsUrl, {
+                        signal: controller.signal,
+                    }),
+                ]);
 
                 if (!active) {
                     return;
                 }
 
-                if (!isPlayerReport(reportResponse.data)) {
+                const latestDataDragonVersion = getLatestDataDragonVersion(
+                    dataDragonVersionsResponse.data
+                );
+
+                if (!isPlayerReport(reportResponse.data) || !latestDataDragonVersion) {
                     navigate('/tooManyRequests');
                     return;
                 }
@@ -316,6 +339,7 @@ function PlayerPage() {
                 setSummoner(reportResponse.data.summoner);
                 setGameList(reportResponse.data.games);
                 setLeague(arrangeLeagueEntries(reportResponse.data.league));
+                setDataDragonVersion(latestDataDragonVersion);
             } catch (error: unknown) {
                 if (axios.isAxiosError(error) && error.code === 'ERR_CANCELED') {
                     return;
@@ -349,10 +373,13 @@ function PlayerPage() {
         );
     }
 
-    if (!summoner) {
+    if (!summoner || !dataDragonVersion) {
         return <NotFoundPage />;
     }
 
+    const dataDragonImageUrl = `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/`;
+    const summonerUrl = `${dataDragonImageUrl}spell/`;
+    const itemUrl = `${dataDragonImageUrl}item/`;
     const { championStats, aggregatedStats } = calculateRecentGameStats(gameList, summoner.puuid);
     const mostPlayedChampion = getMostPlayedChampion(championStats);
 
