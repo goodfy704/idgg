@@ -1,13 +1,14 @@
-import 'dotenv/config';
-import axios, { type AxiosResponse } from 'axios';
-import Bottleneck from 'bottleneck';
+import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
 
 type HttpRequest = {
     query: Record<string, unknown>;
 };
 
 type HttpResponse = {
+    headersSent: boolean;
+    writableEnded: boolean;
     status: (statusCode: number) => HttpResponse;
+    setHeader: (name: string, value: string) => void;
     send: (body: unknown) => HttpResponse;
     json: (body: unknown) => HttpResponse;
     write: (body: string) => boolean;
@@ -15,6 +16,7 @@ type HttpResponse = {
 };
 
 type RequestHandler = (request: HttpRequest, response: HttpResponse) => unknown;
+type AsyncRequestHandler = (request: HttpRequest, response: HttpResponse) => Promise<unknown>;
 
 type ExpressApplication = {
     use: (middleware: unknown) => void;
@@ -174,50 +176,64 @@ const app = express();
 
 app.use(cors());
 
-const limiter = new Bottleneck({
-    minTime: 50,
-});
-
-
-const riotApiKey = process.env.RIOT_API_KEY?.trim();
-
-if (!riotApiKey) {
-    throw new Error('RIOT_API_KEY environment variable is required.');
-}
-
-const riotClient = axios.create({
-    headers: {
-        'X-Riot-Token': riotApiKey,
-    },
-});
-
 app.listen(4000, function () {
     console.log("Server started on port 4000");
 });
 
-async function fetchWithRetry(url: string, res?: HttpResponse): Promise<AxiosResponse<unknown>> {
-    try {
-        return await limiter.schedule(() => riotClient.get<unknown>(url));
-    } catch (error) {
-        if (axios.isAxiosError(error) && error.response?.status === 429) {
-            const retryAfterHeader = error.response.headers['retry-after'];
-            const parsedRetryAfter = Number(retryAfterHeader);
-            const retryAfter = Number.isFinite(parsedRetryAfter) ? parsedRetryAfter : 120;
+const sendRouteError = (response: HttpResponse, error: unknown) => {
+    if (response.headersSent) {
+        if (!response.writableEnded) {
+            response.end();
+        }
+        return;
+    }
 
-            if (res) {
-                res.status(429).send({ message: 'Rate limit exceeded. Retrying...', retryAfter });
-            }
+    if (error instanceof RiotResponseError) {
+        console.error(error.message);
+        response.status(502).json({ message: 'Riot API returned an invalid response.' });
+        return;
+    }
 
-            console.log(`Rate limit exceeded. Retrying after ${retryAfter} seconds...`);
-            await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-            return fetchWithRetry(url, res);
+    if (error instanceof RiotRequestError) {
+        console.error(`Riot API request failed with status ${error.statusCode ?? 'unavailable'}.`);
+
+        if (error.statusCode === 404) {
+            response.status(404).json({ message: 'Riot data was not found.' });
+            return;
         }
 
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`Error fetching data: ${message}`);
-        throw error;
+        if (error.statusCode === 429) {
+            if (error.retryAfterSeconds !== null) {
+                response.setHeader('Retry-After', `${error.retryAfterSeconds}`);
+            }
+
+            response.status(429).json({ message: 'Riot API rate limit exceeded.' });
+            return;
+        }
+
+        if (
+            error.statusCode === 401
+            || error.statusCode === 403
+            || (error.statusCode !== null && error.statusCode >= 500)
+        ) {
+            response.status(503).json({ message: 'Riot API is unavailable.' });
+            return;
+        }
+
+        response.status(502).json({ message: 'Riot API request failed.' });
+        return;
     }
-}
+
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`Unexpected server error: ${message}`);
+    response.status(500).json({ message: 'Unexpected server error.' });
+};
+
+const withErrorBoundary = (handler: AsyncRequestHandler): RequestHandler => (
+    (request, response) => {
+        void handler(request, response).catch(error => sendRouteError(response, error));
+    }
+);
 
 async function getPlayerPUUID(
     playerName: string,
@@ -226,14 +242,13 @@ async function getPlayerPUUID(
     const encodedPlayerName = encodeURIComponent(playerName);
     const encodedPlayerTag = encodeURIComponent(playerTag);
     const apiUrl = `https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodedPlayerName}/${encodedPlayerTag}`;
-    const response = await riotClient.get<unknown>(apiUrl);
+    const data = await requestRiot(apiUrl);
 
-    if (!isRiotAccount(response.data)) {
-        throw new Error('Riot account response is invalid.');
+    if (!isRiotAccount(data)) {
+        throw new RiotResponseError();
     }
 
-    console.log(response.data);
-    return response.data.puuid;
+    return data.puuid;
 }
 
 async function lookupPlayerLocation(gameName: string, tagLine: string): Promise<PlayerLocation | null> {
@@ -243,20 +258,20 @@ async function lookupPlayerLocation(gameName: string, tagLine: string): Promise<
     for (const platform of platforms) {
         try {
             const apiUrl = `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${encodedPUUID}`;
-            const response = await riotClient.get<unknown>(apiUrl);
+            const data = await requestRiot(apiUrl);
 
-            if (!isSummonerData(response.data) || response.data.puuid !== PUUID) {
-                throw new Error('Riot summoner response is invalid.');
+            if (!isSummonerData(data) || data.puuid !== PUUID) {
+                throw new RiotResponseError();
             }
 
             return {
                 PUUID,
                 platform,
                 regionalRoute: platformToRegionalRoute[platform],
-                summoner: response.data,
+                summoner: data,
             };
         } catch (error: unknown) {
-            if (axios.isAxiosError(error) && error.response?.status === 404) {
+            if (error instanceof RiotRequestError && error.statusCode === 404) {
                 continue;
             }
 
@@ -287,7 +302,7 @@ async function getPlayerLocation(gameName: string, tagLine: string): Promise<Pla
     }
 }
 
-app.get('/past5Games', async (req, res) => {
+app.get('/past5Games', withErrorBoundary(async (req, res) => {
     const playerQuery = getPlayerQuery(req);
 
     if (!playerQuery) {
@@ -308,26 +323,26 @@ app.get('/past5Games', async (req, res) => {
 
     const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids`;
 
-    const gameIDsResponse = await fetchWithRetry(API_CALL, res);
+    const gameIDsData = await requestRiot(API_CALL);
 
-    if (!isStringArray(gameIDsResponse.data)) {
-        throw new Error('Riot match ID response is invalid.');
+    if (!isStringArray(gameIDsData)) {
+        throw new RiotResponseError();
     }
 
-    const gameIDs = gameIDsResponse.data;
+    const gameIDs = gameIDsData;
 
     const matchDataArray: unknown[] = [];
     for (let i = 0; i < gameIDs.length-10; i++) {
         const matchID = gameIDs[i];
         const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
-        const matchResponse = await fetchWithRetry(matchIDAPI, res);
-        matchDataArray.push(matchResponse.data);
+        const matchData = await requestRiot(matchIDAPI);
+        matchDataArray.push(matchData);
     }
 
     res.json(matchDataArray);
-});
+}));
 
-app.get('/summoner', async (req, res) => {
+app.get('/summoner', withErrorBoundary(async (req, res) => {
     const playerQuery = getPlayerQuery(req);
 
     if (!playerQuery) {
@@ -344,9 +359,9 @@ app.get('/summoner', async (req, res) => {
     }
 
     res.json(playerLocation.summoner);
-});
+}));
 
-app.get('/league', async (req, res) => {
+app.get('/league', withErrorBoundary(async (req, res) => {
     const playerQuery = getPlayerQuery(req);
 
     if (!playerQuery) {
@@ -363,13 +378,12 @@ app.get('/league', async (req, res) => {
     }
 
     const API_CALL = `https://${playerLocation.platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(playerLocation.PUUID)}`;
+    const leagueData = await requestRiot(API_CALL);
 
-    const leagueResponse = await riotClient.get<unknown>(API_CALL);
+    res.json(leagueData);
+}));
 
-    res.json(leagueResponse.data);
-});
-
-app.get('/championStats', async (req, res) => {
+app.get('/championStats', withErrorBoundary(async (req, res) => {
     const playerQuery = getPlayerQuery(req);
 
     if (!playerQuery) {
@@ -388,22 +402,13 @@ app.get('/championStats', async (req, res) => {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
     const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=25`;
+    const gameIDsData = await requestRiot(API_CALL);
 
-    let gameIDs: string[];
-
-    try {
-        const gameIDsResponse = await fetchWithRetry(API_CALL, res);
-
-        if (!isStringArray(gameIDsResponse.data)) {
-            throw new Error('Riot match ID response is invalid.');
-        }
-
-        gameIDs = gameIDsResponse.data;
-    } catch (err: unknown) {
-        console.error("Error fetching match IDs:", err);
-        res.status(500).send("Error fetching match IDs.");
-        return;
+    if (!isStringArray(gameIDsData)) {
+        throw new RiotResponseError();
     }
+
+    const gameIDs = gameIDsData;
 
     if (!gameIDs.length) {
         return res.status(200).json({ message: "No games found." });
@@ -414,13 +419,13 @@ app.get('/championStats', async (req, res) => {
     const processBatch = async (batch: string[]) => {
         for (const matchID of batch) {
             const matchAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
-            const matchResponse = await fetchWithRetry(matchAPI);
+            const matchData = await requestRiot(matchAPI);
 
-            if (!isMatchData(matchResponse.data)) {
-                throw new Error('Riot match response is invalid.');
+            if (!isMatchData(matchData)) {
+                throw new RiotResponseError();
             }
 
-            const participant = matchResponse.data.info.participants.find((p) => p.puuid === PUUID);
+            const participant = matchData.info.participants.find((p) => p.puuid === PUUID);
 
             if (participant) {
                 const championName = participant.championName;
@@ -469,4 +474,4 @@ app.get('/championStats', async (req, res) => {
     }
 
     res.end();
-});
+}));
