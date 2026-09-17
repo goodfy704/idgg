@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import axios, { type AxiosResponse } from 'axios';
 import Bottleneck from 'bottleneck';
 
@@ -104,7 +105,17 @@ const limiter = new Bottleneck({
 });
 
 
-const API_KEY="RGAPI-db57665d-3682-4f93-a17c-95a6efdd4f5b";
+const riotApiKey = process.env.RIOT_API_KEY?.trim();
+
+if (!riotApiKey) {
+    throw new Error('RIOT_API_KEY environment variable is required.');
+}
+
+const riotClient = axios.create({
+    headers: {
+        'X-Riot-Token': riotApiKey,
+    },
+});
 
 app.listen(4000, function () {
     console.log("Server started on port 4000");
@@ -120,7 +131,7 @@ const regionToSubRegionMap: Record<string, string[]> = {
 
 async function fetchWithRetry(url: string, res?: HttpResponse): Promise<AxiosResponse<unknown>> {
     try {
-        return await limiter.schedule(() => axios.get<unknown>(url));
+        return await limiter.schedule(() => riotClient.get<unknown>(url));
     } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 429) {
             const retryAfterHeader = error.response.headers['retry-after'];
@@ -143,8 +154,8 @@ async function fetchWithRetry(url: string, res?: HttpResponse): Promise<AxiosRes
 }
 
 async function getPlayerPUUID(playerName: string, playerTag: string): Promise<string> {
-    const apiUrl = "https://europe.api.riotgames.com" + "/riot/account/v1/accounts/by-riot-id/" + playerName + "/" + playerTag + "?api_key=" + API_KEY;
-    const response = await axios.get<unknown>(apiUrl);
+    const apiUrl = "https://europe.api.riotgames.com" + "/riot/account/v1/accounts/by-riot-id/" + playerName + "/" + playerTag;
+    const response = await riotClient.get<unknown>(apiUrl);
 
     if (!isRiotAccount(response.data)) {
         throw new Error('Riot account response is invalid.');
@@ -157,8 +168,8 @@ async function getPlayerPUUID(playerName: string, playerTag: string): Promise<st
 async function getSummonerID(PUUID: string): Promise<SummonerLocation> {
     for (let subRegion of subRegions) {
         try {
-            const apiUrl = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}?api_key=${API_KEY}`;
-            const response = await axios.get<unknown>(apiUrl);
+            const apiUrl = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}`;
+            const response = await riotClient.get<unknown>(apiUrl);
 
             if (isSummonerLookup(response.data) && response.data.id) {
                 console.log(`Summoner found: ${response.data.id}, subRegion: ${subRegion}`);
@@ -204,7 +215,7 @@ app.get('/past5Games', async (req, res) => {
     }
     console.log(mainRegion);
 
-    const API_CALL = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/by-puuid/${PUUID}/ids?api_key=${API_KEY}`;
+    const API_CALL = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/by-puuid/${PUUID}/ids`;
 
     const gameIDsResponse = await fetchWithRetry(API_CALL, res);
 
@@ -217,7 +228,7 @@ app.get('/past5Games', async (req, res) => {
     const matchDataArray: unknown[] = [];
     for (let i = 0; i < gameIDs.length-10; i++) {
         const matchID = gameIDs[i];
-        const matchIDAPI = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/${matchID}?api_key=${API_KEY}`;
+        const matchIDAPI = `https://${mainRegion}.api.riotgames.com/lol/match/v5/matches/${matchID}`;
         const matchResponse = await fetchWithRetry(matchIDAPI, res);
         matchDataArray.push(matchResponse.data);
     }
@@ -241,9 +252,9 @@ app.get('/summoner', async (req, res) => {
     if (!summonerID || !subRegion) {
         return res.status(404).json({ message: 'summonerID and subRegion bb bb' });
     }
-    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}?api_key=${API_KEY}`;
+    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${PUUID}`;
 
-    const summonerResponse = await axios.get<unknown>(API_CALL);
+    const summonerResponse = await riotClient.get<unknown>(API_CALL);
 
     res.json(summonerResponse.data);
 });
@@ -264,9 +275,9 @@ app.get('/league', async (req, res) => {
     if (!summonerID || !subRegion) {
         return res.status(404).json({ message: 'summonerID and subRegion bb bb' });
     }
-    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/league/v4/entries/by-summoner/${summonerID}?api_key=${API_KEY}`;
+    const API_CALL = `https://${subRegion}.api.riotgames.com/lol/league/v4/entries/by-summoner/${summonerID}`;
 
-    const leagueResponse = await axios.get<unknown>(API_CALL);
+    const leagueResponse = await riotClient.get<unknown>(API_CALL);
 
     res.json(leagueResponse.data);
 });
@@ -281,7 +292,7 @@ app.get('/championStats', async (req, res) => {
     const username = userInput.split("-")[0];
     const tag = userInput.split("-")[1];
     const PUUID = await getPlayerPUUID(username, tag);
-    const API_CALL = "https://europe.api.riotgames.com/" + "lol/match/v5/matches/by-puuid/" + PUUID + "/ids?start=0&count=25&" + "api_key=" + API_KEY;
+    const API_CALL = "https://europe.api.riotgames.com/" + "lol/match/v5/matches/by-puuid/" + PUUID + "/ids?start=0&count=25";
 
     let gameIDs: string[];
 
@@ -307,7 +318,7 @@ app.get('/championStats', async (req, res) => {
 
     const processBatch = async (batch: string[]) => {
         for (const matchID of batch) {
-            const matchAPI = `https://europe.api.riotgames.com/lol/match/v5/matches/${matchID}?api_key=${API_KEY}`;
+            const matchAPI = `https://europe.api.riotgames.com/lol/match/v5/matches/${matchID}`;
             const matchResponse = await fetchWithRetry(matchAPI);
 
             if (!isMatchData(matchResponse.data)) {
