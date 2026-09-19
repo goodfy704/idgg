@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 
 import { closeDatabase, verifyDatabaseConnection } from './database';
 import { runMigrations } from './migrate';
+import { getCachedReport, saveCachedReport } from './reportRepository';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
 import {
     isLeagueEntries,
@@ -295,6 +296,15 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
         return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
+    const cachedReport = await getCachedReport(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
+
+    if (cachedReport) {
+        return res.json(cachedReport.report);
+    }
+
     const playerLocation = await getPlayerLocation(
         playerQuery.gameName,
         playerQuery.tagLine
@@ -318,6 +328,14 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
     if (!isPlayerReport(report)) {
         throw new RiotResponseError();
     }
+
+    await saveCachedReport({
+        gameName: playerQuery.gameName,
+        tagLine: playerQuery.tagLine,
+        platform: playerLocation.platform,
+        regionalRoute: playerLocation.regionalRoute,
+        report,
+    });
 
     res.json(report);
 }));
