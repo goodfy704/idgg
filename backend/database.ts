@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Pool, type QueryResult, type QueryResultRow } from 'pg';
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 
@@ -22,6 +22,27 @@ export function queryDatabase<Row extends QueryResultRow>(
     values: unknown[] = []
 ): Promise<QueryResult<Row>> {
     return databasePool.query<Row, unknown[]>(queryText, values);
+}
+
+export async function withDatabaseTransaction<Result>(
+    operation: (client: PoolClient) => Promise<Result>
+): Promise<Result> {
+    const client = await databasePool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        try {
+            const result = await operation(client);
+            await client.query('COMMIT');
+            return result;
+        } catch (error: unknown) {
+            await client.query('ROLLBACK');
+            throw error;
+        }
+    } finally {
+        client.release();
+    }
 }
 
 export async function verifyDatabaseConnection(): Promise<void> {

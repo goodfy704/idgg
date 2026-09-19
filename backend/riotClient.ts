@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import axios from 'axios';
-import Bottleneck from 'bottleneck';
+
+import { waitForRiotRateLimit } from './rateLimitCoordinator';
 
 export class RiotRequestError extends Error {
     readonly statusCode: number | null;
@@ -25,14 +26,6 @@ const maxRiotRequestAttempts = 3;
 const defaultRetryAfterSeconds = 1;
 const maximumRetryAfterSeconds = 120;
 let riotCooldownUntil = 0;
-
-const limiter = new Bottleneck({
-    maxConcurrent: 1,
-    minTime: 50,
-    reservoir: 100,
-    reservoirRefreshAmount: 100,
-    reservoirRefreshInterval: 120000,
-});
 
 const riotApiKey = process.env.RIOT_API_KEY?.trim();
 
@@ -65,13 +58,25 @@ const waitForRiotCooldown = async () => {
     }
 };
 
+const getRiotRoutingValue = (url: string): string => {
+    const parsedUrl = new URL(url);
+    const hostMatch = /^([a-z0-9]+)\.api\.riotgames\.com$/i.exec(parsedUrl.hostname);
+
+    if (parsedUrl.protocol !== 'https:' || !hostMatch) {
+        throw new Error('Riot API URL is invalid.');
+    }
+
+    return hostMatch[1];
+};
+
 export async function requestRiot(url: string): Promise<unknown> {
+    const routingValue = getRiotRoutingValue(url);
+
     for (let attempt = 1; attempt <= maxRiotRequestAttempts; attempt += 1) {
         try {
-            const response = await limiter.schedule(async () => {
-                await waitForRiotCooldown();
-                return riotClient.get<unknown>(url);
-            });
+            await waitForRiotCooldown();
+            await waitForRiotRateLimit(routingValue);
+            const response = await riotClient.get<unknown>(url);
 
             return response.data;
         } catch (error: unknown) {
