@@ -33,7 +33,7 @@ const normalizeCachePart = (value: string) => (
     value.normalize('NFKC').toLocaleLowerCase('en-US')
 );
 
-const getCacheKey = (gameName: string, tagLine: string) => (
+export const getReportCacheKey = (gameName: string, tagLine: string) => (
     `${normalizeCachePart(gameName)}#${normalizeCachePart(tagLine)}`
 );
 
@@ -41,23 +41,10 @@ const isValidDate = (value: unknown): value is Date => (
     value instanceof Date && !Number.isNaN(value.getTime())
 );
 
-export async function getCachedReport(
-    gameName: string,
-    tagLine: string
-): Promise<CachedReport | null> {
-    const cacheKey = getCacheKey(gameName, tagLine);
-    const result = await queryDatabase<ReportCacheRow>(`
-        SELECT game_name, tag_line, puuid, platform, regional_route, report, fetched_at
-        FROM report_cache
-        WHERE cache_key = $1
-    `, [cacheKey]);
-
-    if (result.rows.length === 0) {
-        return null;
-    }
-
-    const row = result.rows[0];
-
+const parseCachedReport = (
+    row: ReportCacheRow,
+    expectedCacheKey: string
+): CachedReport => {
     if (
         typeof row.game_name !== 'string'
         || typeof row.tag_line !== 'string'
@@ -69,7 +56,7 @@ export async function getCachedReport(
         || !isPlayerReport(row.report)
         || row.report.summoner.puuid !== row.puuid
         || !isValidDate(row.fetched_at)
-        || getCacheKey(row.game_name, row.tag_line) !== cacheKey
+        || getReportCacheKey(row.game_name, row.tag_line) !== expectedCacheKey
     ) {
         throw new Error('Stored report is invalid.');
     }
@@ -83,9 +70,27 @@ export async function getCachedReport(
         report: row.report,
         fetchedAt: row.fetched_at,
     };
+};
+
+export async function getCachedReport(
+    gameName: string,
+    tagLine: string
+): Promise<CachedReport | null> {
+    const cacheKey = getReportCacheKey(gameName, tagLine);
+    const result = await queryDatabase<ReportCacheRow>(`
+        SELECT game_name, tag_line, puuid, platform, regional_route, report, fetched_at
+        FROM report_cache
+        WHERE cache_key = $1
+    `, [cacheKey]);
+
+    if (result.rows.length === 0) {
+        return null;
+    }
+
+    return parseCachedReport(result.rows[0], cacheKey);
 }
 
-export async function saveCachedReport(input: SaveReportInput): Promise<void> {
+export async function saveCachedReport(input: SaveReportInput): Promise<CachedReport> {
     if (
         !input.gameName.trim()
         || !input.tagLine.trim()
@@ -96,10 +101,10 @@ export async function saveCachedReport(input: SaveReportInput): Promise<void> {
         throw new Error('Report cache input is invalid.');
     }
 
-    const cacheKey = getCacheKey(input.gameName, input.tagLine);
+    const cacheKey = getReportCacheKey(input.gameName, input.tagLine);
     const serializedReport = JSON.stringify(input.report);
 
-    await queryDatabase(`
+    const result = await queryDatabase<ReportCacheRow>(`
         INSERT INTO report_cache (
             cache_key,
             game_name,
@@ -119,6 +124,7 @@ export async function saveCachedReport(input: SaveReportInput): Promise<void> {
             report = EXCLUDED.report,
             fetched_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP
+        RETURNING game_name, tag_line, puuid, platform, regional_route, report, fetched_at
     `, [
         cacheKey,
         input.gameName,
@@ -128,4 +134,10 @@ export async function saveCachedReport(input: SaveReportInput): Promise<void> {
         input.regionalRoute,
         serializedReport,
     ]);
+
+    if (result.rows.length !== 1) {
+        throw new Error('Stored report could not be returned.');
+    }
+
+    return parseCachedReport(result.rows[0], cacheKey);
 }

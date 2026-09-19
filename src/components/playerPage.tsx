@@ -71,6 +71,14 @@ type PlayerReport = {
     games: MatchData[];
 };
 
+type PlayerReportResponse = {
+    report: PlayerReport;
+    cache: {
+        source: 'cache' | 'sync';
+        fetchedAt: string;
+    };
+};
+
 type ChampionTotals = {
     gamesPlayed: number;
     wins: number;
@@ -163,6 +171,23 @@ const isPlayerReport = (value: unknown): value is PlayerReport => (
     && value.league.every(isLeagueEntry)
     && Array.isArray(value.games)
     && value.games.every(isMatchData)
+);
+
+const isIsoTimestamp = (value: unknown): value is string => {
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const timestamp = new Date(value);
+    return !Number.isNaN(timestamp.getTime()) && timestamp.toISOString() === value;
+};
+
+const isPlayerReportResponse = (value: unknown): value is PlayerReportResponse => (
+    isRecord(value)
+    && isPlayerReport(value.report)
+    && isRecord(value.cache)
+    && (value.cache.source === 'cache' || value.cache.source === 'sync')
+    && isIsoTimestamp(value.cache.fetchedAt)
 );
 
 const getLatestDataDragonVersion = (value: unknown): string | null => {
@@ -331,14 +356,15 @@ function PlayerPage() {
                     dataDragonVersionsResponse.data
                 );
 
-                if (!isPlayerReport(reportResponse.data) || !latestDataDragonVersion) {
+                if (!isPlayerReportResponse(reportResponse.data) || !latestDataDragonVersion) {
                     navigate('/tooManyRequests');
                     return;
                 }
 
-                setSummoner(reportResponse.data.summoner);
-                setGameList(reportResponse.data.games);
-                setLeague(arrangeLeagueEntries(reportResponse.data.league));
+                const report = reportResponse.data.report;
+                setSummoner(report.summoner);
+                setGameList(report.games);
+                setLeague(arrangeLeagueEntries(report.league));
                 setDataDragonVersion(latestDataDragonVersion);
             } catch (error: unknown) {
                 if (axios.isAxiosError(error) && error.code === 'ERR_CANCELED') {

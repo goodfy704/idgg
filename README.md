@@ -64,6 +64,30 @@ Open `http://localhost:3000`. Vite forwards same-origin `/api` requests to the b
 
 Enter a Riot ID in `Game Name#Tagline` format. The application separates the game name and tagline and discovers the player's supported platform automatically.
 
+## Report caching
+
+Reports remain fresh for five minutes. Requests for the same normalized Riot ID share one in-process lookup or refresh, so concurrent requests do not duplicate Riot synchronization work. Successful report responses contain the report plus cache metadata:
+
+```json
+{
+    "report": {
+        "summoner": {
+            "puuid": "example-puuid",
+            "profileIconId": 1,
+            "summonerLevel": 1
+        },
+        "league": [],
+        "games": []
+    },
+    "cache": {
+        "source": "cache",
+        "fetchedAt": "2026-09-19T12:00:00.000Z"
+    }
+}
+```
+
+`cache.source` is `sync` when the request performed or joined a synchronization and `cache` when it reused a fresh stored report. Synchronization failures are returned as errors and are not replaced with stale data.
+
 ## Baseline verification
 
 Run these checks from the repository root:
@@ -88,6 +112,8 @@ After both development servers are running, verify the application manually:
 8. Confirm ranked solo, ranked flex, normal, ARAM, and other known queues are not all labeled as ranked solo.
 9. In the browser network panel, confirm the report uses one same-origin `/api/report` request and does not call `localhost:4000` directly.
 10. Search for an invalid Riot ID and confirm the not-found state appears without showing stale player data.
+11. Send two concurrent requests for an uncached or older-than-five-minutes Riot ID and confirm both return `cache.source` as `sync` with the same `cache.fetchedAt` value.
+12. Request the same Riot ID again within five minutes and confirm `cache.source` is `cache` and `cache.fetchedAt` is unchanged.
 
 A complete baseline requires the clean installation commands, all TypeScript and build commands, and one successful authorized player lookup.
 

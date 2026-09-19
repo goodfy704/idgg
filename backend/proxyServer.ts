@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 
 import { closeDatabase, verifyDatabaseConnection } from './database';
 import { runMigrations } from './migrate';
-import { getCachedReport, saveCachedReport } from './reportRepository';
+import { getOrSyncPlayerReport, type PlayerReportSync } from './playerSync';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
 import {
     isLeagueEntries,
@@ -84,6 +84,14 @@ const platformToRegionalRoute: Record<Platform, RegionalRoute> = {
 type PlayerQuery = {
     gameName: string;
     tagLine: string;
+};
+
+type PlayerReportResponse = {
+    report: PlayerReport;
+    cache: {
+        source: 'cache' | 'sync';
+        fetchedAt: string;
+    };
 };
 
 type PlayerLocation = {
@@ -289,29 +297,16 @@ async function getLeagueEntries(playerLocation: PlayerLocation): Promise<LeagueE
     return leagueEntries;
 }
 
-app.get('/api/report', withErrorBoundary(async (req, res) => {
-    const playerQuery = getPlayerQuery(req);
-
-    if (!playerQuery) {
-        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
-    }
-
-    const cachedReport = await getCachedReport(
-        playerQuery.gameName,
-        playerQuery.tagLine
-    );
-
-    if (cachedReport) {
-        return res.json(cachedReport.report);
-    }
-
+async function synchronizePlayerReport(
+    playerQuery: PlayerQuery
+): Promise<PlayerReportSync | null> {
     const playerLocation = await getPlayerLocation(
         playerQuery.gameName,
         playerQuery.tagLine
     );
 
     if (!playerLocation) {
-        return res.status(404).json({ message: 'Player platform could not be found.' });
+        return null;
     }
 
     const [games, league] = await Promise.all([
@@ -329,15 +324,39 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
         throw new RiotResponseError();
     }
 
-    await saveCachedReport({
-        gameName: playerQuery.gameName,
-        tagLine: playerQuery.tagLine,
+    return {
         platform: playerLocation.platform,
         regionalRoute: playerLocation.regionalRoute,
         report,
-    });
+    };
+}
 
-    res.json(report);
+app.get('/api/report', withErrorBoundary(async (req, res) => {
+    const playerQuery = getPlayerQuery(req);
+
+    if (!playerQuery) {
+        return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
+    }
+
+    const result = await getOrSyncPlayerReport(
+        playerQuery.gameName,
+        playerQuery.tagLine,
+        () => synchronizePlayerReport(playerQuery)
+    );
+
+    if (!result) {
+        return res.status(404).json({ message: 'Player platform could not be found.' });
+    }
+
+    const response: PlayerReportResponse = {
+        report: result.report,
+        cache: {
+            source: result.source,
+            fetchedAt: result.fetchedAt.toISOString(),
+        },
+    };
+
+    res.json(response);
 }));
 
 app.get('/championStats', withErrorBoundary(async (req, res) => {
