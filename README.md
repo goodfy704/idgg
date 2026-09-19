@@ -35,6 +35,14 @@ Keep database credentials and the Riot API key only in this server-side environm
 
 The backend stops during startup when either required value is missing or empty. It verifies the PostgreSQL connection before listening for requests.
 
+Apply pending database migrations from the repository root:
+
+```text
+npm --prefix backend run migrate
+```
+
+Non-empty migrations run in filename order and are recorded in the database. Empty placeholder files are ignored until they contain SQL, and applied migration files must not be changed. The backend also applies pending migrations during startup and does not listen if migration fails.
+
 ## Local development
 
 Start the backend from the `backend` directory:
@@ -70,14 +78,16 @@ The first command checks the React application. The second checks every backend 
 
 After both development servers are running, verify the application manually:
 
-1. Confirm the backend does not listen when `DATABASE_URL` is missing or unreachable.
-2. Start PostgreSQL and confirm the backend listens only after its connection succeeds.
-3. Open `http://localhost:3000` and search for a known Riot ID.
-4. Confirm the profile icon, summoner level, solo and flex rank states, items, spells, runes, and champion images render.
-5. Confirm the page shows up to ten recent matches and that the summary reports the number actually displayed.
-6. Confirm ranked solo, ranked flex, normal, ARAM, and other known queues are not all labeled as ranked solo.
-7. In the browser network panel, confirm the report uses one same-origin `/api/report` request and does not call `localhost:4000` directly.
-8. Search for an invalid Riot ID and confirm the not-found state appears without showing stale player data.
+1. Run the database migration command twice and confirm the first run applies pending migrations while the second reports that the schema is up to date.
+2. On a fresh database, confirm `schema_migrations` records `001_create_report_cache.sql` and `report_cache` exists with no rows.
+3. Confirm the backend does not listen when `DATABASE_URL` is missing or unreachable.
+4. Start PostgreSQL and confirm the backend listens only after its connection and migrations succeed.
+5. Open `http://localhost:3000` and search for a known Riot ID.
+6. Confirm the profile icon, summoner level, solo and flex rank states, items, spells, runes, and champion images render.
+7. Confirm the page shows up to ten recent matches and that the summary reports the number actually displayed.
+8. Confirm ranked solo, ranked flex, normal, ARAM, and other known queues are not all labeled as ranked solo.
+9. In the browser network panel, confirm the report uses one same-origin `/api/report` request and does not call `localhost:4000` directly.
+10. Search for an invalid Riot ID and confirm the not-found state appears without showing stale player data.
 
 A complete baseline requires the clean installation commands, all TypeScript and build commands, and one successful authorized player lookup.
 

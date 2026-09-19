@@ -1,7 +1,20 @@
 import type { Server } from 'node:http';
 
 import { closeDatabase, verifyDatabaseConnection } from './database';
+import { runMigrations } from './migrate';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
+import {
+    isLeagueEntries,
+    isMatchData,
+    isPlayerReport,
+    isRiotAccount,
+    isStringArray,
+    isSummonerData,
+    type LeagueEntry,
+    type MatchData,
+    type PlayerReport,
+    type SummonerData,
+} from './riotSchemas';
 
 type HttpRequest = {
     query: Record<string, unknown>;
@@ -27,31 +40,6 @@ type ExpressApplication = {
 };
 
 type ExpressFactory = () => ExpressApplication;
-
-type RiotAccount = {
-    puuid: string;
-};
-
-type SummonerData = {
-    puuid: string;
-    profileIconId: number;
-    summonerLevel: number;
-};
-
-type MatchParticipant = {
-    puuid: string;
-    championName: string;
-    win: boolean;
-    kills: number;
-    deaths: number;
-    assists: number;
-};
-
-type MatchData = {
-    info: {
-        participants: MatchParticipant[];
-    };
-};
 
 type ChampionTotals = {
     games: number;
@@ -103,42 +91,6 @@ type PlayerLocation = {
     regionalRoute: RegionalRoute;
     summoner: SummonerData;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> => (
-    typeof value === 'object' && value !== null
-);
-
-const isRiotAccount = (value: unknown): value is RiotAccount => (
-    isRecord(value) && typeof value.puuid === 'string'
-);
-
-const isSummonerData = (value: unknown): value is SummonerData => (
-    isRecord(value)
-    && typeof value.puuid === 'string'
-    && typeof value.profileIconId === 'number'
-    && typeof value.summonerLevel === 'number'
-);
-
-const isStringArray = (value: unknown): value is string[] => (
-    Array.isArray(value) && value.every(item => typeof item === 'string')
-);
-
-const isMatchParticipant = (value: unknown): value is MatchParticipant => (
-    isRecord(value)
-    && typeof value.puuid === 'string'
-    && typeof value.championName === 'string'
-    && typeof value.win === 'boolean'
-    && typeof value.kills === 'number'
-    && typeof value.deaths === 'number'
-    && typeof value.assists === 'number'
-);
-
-const isMatchData = (value: unknown): value is MatchData => (
-    isRecord(value)
-    && isRecord(value.info)
-    && Array.isArray(value.info.participants)
-    && value.info.participants.every(isMatchParticipant)
-);
 
 const isValidGameName = (value: string) => {
     const length = Array.from(value).length;
@@ -300,7 +252,7 @@ async function getPlayerLocation(gameName: string, tagLine: string): Promise<Pla
     }
 }
 
-async function getRecentMatches(playerLocation: PlayerLocation): Promise<unknown[]> {
+async function getRecentMatches(playerLocation: PlayerLocation): Promise<MatchData[]> {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
     const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=${recentMatchCount}`;
@@ -310,19 +262,30 @@ async function getRecentMatches(playerLocation: PlayerLocation): Promise<unknown
         throw new RiotResponseError();
     }
 
-    const matchDataArray: unknown[] = [];
+    const matchDataArray: MatchData[] = [];
     for (const matchID of gameIDsData) {
         const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
         const matchData = await requestRiot(matchIDAPI);
+
+        if (!isMatchData(matchData) || matchData.metadata.matchId !== matchID) {
+            throw new RiotResponseError();
+        }
+
         matchDataArray.push(matchData);
     }
 
     return matchDataArray;
 }
 
-async function getLeagueEntries(playerLocation: PlayerLocation): Promise<unknown> {
+async function getLeagueEntries(playerLocation: PlayerLocation): Promise<LeagueEntry[]> {
     const API_CALL = `https://${playerLocation.platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(playerLocation.PUUID)}`;
-    return requestRiot(API_CALL);
+    const leagueEntries = await requestRiot(API_CALL);
+
+    if (!isLeagueEntries(leagueEntries)) {
+        throw new RiotResponseError();
+    }
+
+    return leagueEntries;
 }
 
 app.get('/api/report', withErrorBoundary(async (req, res) => {
@@ -346,11 +309,17 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
         getLeagueEntries(playerLocation),
     ]);
 
-    res.json({
+    const report: PlayerReport = {
         summoner: playerLocation.summoner,
         league,
         games,
-    });
+    };
+
+    if (!isPlayerReport(report)) {
+        throw new RiotResponseError();
+    }
+
+    res.json(report);
 }));
 
 app.get('/championStats', withErrorBoundary(async (req, res) => {
@@ -485,11 +454,12 @@ const shutdown = async () => {
 const startServer = async () => {
     try {
         await verifyDatabaseConnection();
+        await runMigrations();
         server = app.listen(4000, function () {
             console.log('Server started on port 4000');
         });
     } catch {
-        console.error('PostgreSQL connection failed. Server was not started.');
+        console.error('Database startup failed. Server was not started.');
         process.exitCode = 1;
 
         try {
