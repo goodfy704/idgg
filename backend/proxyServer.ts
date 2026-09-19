@@ -1,3 +1,6 @@
+import type { Server } from 'node:http';
+
+import { closeDatabase, verifyDatabaseConnection } from './database';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
 
 type HttpRequest = {
@@ -19,7 +22,7 @@ type RequestHandler = (request: HttpRequest, response: HttpResponse) => unknown;
 type AsyncRequestHandler = (request: HttpRequest, response: HttpResponse) => Promise<unknown>;
 
 type ExpressApplication = {
-    listen: (port: number, callback: () => void) => void;
+    listen: (port: number, callback: () => void) => Server;
     get: (path: string, handler: RequestHandler) => void;
 };
 
@@ -172,10 +175,8 @@ const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
 const express: ExpressFactory = require('express');
 const app = express();
-
-app.listen(4000, function () {
-    console.log("Server started on port 4000");
-});
+let server: Server | null = null;
+let shuttingDown = false;
 
 const sendRouteError = (response: HttpResponse, error: unknown) => {
     if (response.headersSent) {
@@ -444,3 +445,67 @@ app.get('/championStats', withErrorBoundary(async (req, res) => {
 
     res.end();
 }));
+
+const closeHttpServer = async (): Promise<void> => {
+    const activeServer = server;
+
+    if (!activeServer) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        activeServer.close(error => {
+            if (error) {
+                reject(error);
+                return;
+            }
+
+            resolve();
+        });
+    });
+    server = null;
+};
+
+const shutdown = async () => {
+    if (shuttingDown) {
+        return;
+    }
+
+    shuttingDown = true;
+
+    try {
+        await closeHttpServer();
+        await closeDatabase();
+    } catch {
+        console.error('Server shutdown failed.');
+        process.exitCode = 1;
+    }
+};
+
+const startServer = async () => {
+    try {
+        await verifyDatabaseConnection();
+        server = app.listen(4000, function () {
+            console.log('Server started on port 4000');
+        });
+    } catch {
+        console.error('PostgreSQL connection failed. Server was not started.');
+        process.exitCode = 1;
+
+        try {
+            await closeDatabase();
+        } catch {
+            console.error('PostgreSQL pool shutdown failed.');
+        }
+    }
+};
+
+process.once('SIGINT', () => {
+    void shutdown();
+});
+
+process.once('SIGTERM', () => {
+    void shutdown();
+});
+
+void startServer();
