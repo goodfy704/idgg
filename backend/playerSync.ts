@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 
 import {
     acquireReportSyncLease,
+    getCachedMatchTimeline,
     getCachedReport,
     getReportCacheKey,
     releaseReportSyncLease,
     renewReportSyncLease,
     saveCachedReport,
+    saveMatchTimeline,
 } from './reportRepository';
-import type { PlayerReport } from './riotSchemas';
+import type { MatchTimeline, PlayerReport } from './riotSchemas';
 
 export type PlayerReportSync = {
     platform: string;
@@ -22,13 +24,21 @@ export type PlayerReportResult = {
     fetchedAt: Date;
 };
 
+export type MatchTimelineResult = {
+    timeline: MatchTimeline;
+    source: 'cache' | 'sync';
+    fetchedAt: Date;
+};
+
 type SynchronizePlayerReport = () => Promise<PlayerReportSync | null>;
+type SynchronizeMatchTimeline = () => Promise<MatchTimeline | null>;
 
 const reportFreshnessMilliseconds = 5 * 60 * 1000;
 const syncLeaseDurationMilliseconds = 60 * 1000;
 const syncLeaseRenewalMilliseconds = 20 * 1000;
 const syncLeaseRetryMilliseconds = 500;
 const activePlayerSyncs = new Map<string, Promise<PlayerReportResult | null>>();
+const activeMatchTimelineSyncs = new Map<string, Promise<MatchTimelineResult | null>>();
 
 const delay = async (milliseconds: number): Promise<void> => {
     await new Promise<void>(resolve => setTimeout(resolve, milliseconds));
@@ -205,6 +215,64 @@ export async function getOrSyncPlayerReport(
     } finally {
         if (activePlayerSyncs.get(cacheKey) === sync) {
             activePlayerSyncs.delete(cacheKey);
+        }
+    }
+}
+
+const resolveMatchTimeline = async (
+    matchId: string,
+    regionalRoute: string,
+    synchronize: SynchronizeMatchTimeline
+): Promise<MatchTimelineResult | null> => {
+    const cachedTimeline = await getCachedMatchTimeline(matchId, regionalRoute);
+
+    if (cachedTimeline) {
+        return {
+            timeline: cachedTimeline.timeline,
+            source: 'cache',
+            fetchedAt: cachedTimeline.fetchedAt,
+        };
+    }
+
+    const synchronizedTimeline = await synchronize();
+
+    if (!synchronizedTimeline) {
+        return null;
+    }
+
+    const storedTimeline = await saveMatchTimeline({
+        matchId,
+        regionalRoute,
+        timeline: synchronizedTimeline,
+    });
+
+    return {
+        timeline: storedTimeline.timeline,
+        source: 'sync',
+        fetchedAt: storedTimeline.fetchedAt,
+    };
+};
+
+export async function getOrSyncMatchTimeline(
+    matchId: string,
+    regionalRoute: string,
+    synchronize: SynchronizeMatchTimeline
+): Promise<MatchTimelineResult | null> {
+    const syncKey = `${regionalRoute.trim().toLocaleLowerCase('en-US')}:${matchId.trim()}`;
+    const activeSync = activeMatchTimelineSyncs.get(syncKey);
+
+    if (activeSync) {
+        return activeSync;
+    }
+
+    const sync = resolveMatchTimeline(matchId, regionalRoute, synchronize);
+    activeMatchTimelineSyncs.set(syncKey, sync);
+
+    try {
+        return await sync;
+    } finally {
+        if (activeMatchTimelineSyncs.get(syncKey) === sync) {
+            activeMatchTimelineSyncs.delete(syncKey);
         }
     }
 }

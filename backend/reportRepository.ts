@@ -1,5 +1,10 @@
 import { queryDatabase } from './database';
-import { isPlayerReport, type PlayerReport } from './riotSchemas';
+import {
+    isMatchTimeline,
+    isPlayerReport,
+    type MatchTimeline,
+    type PlayerReport,
+} from './riotSchemas';
 
 type ReportCacheRow = {
     game_name: unknown;
@@ -31,6 +36,26 @@ type SaveReportInput = {
 
 type SyncLeaseRow = {
     lease_expires_at: unknown;
+};
+
+type MatchTimelineRow = {
+    match_id: unknown;
+    regional_route: unknown;
+    timeline: unknown;
+    fetched_at: unknown;
+};
+
+export type CachedMatchTimeline = {
+    matchId: string;
+    regionalRoute: string;
+    timeline: MatchTimeline;
+    fetchedAt: Date;
+};
+
+type SaveMatchTimelineInput = {
+    matchId: string;
+    regionalRoute: string;
+    timeline: MatchTimeline;
 };
 
 const normalizeCachePart = (value: string) => (
@@ -72,6 +97,31 @@ const parseCachedReport = (
         platform: row.platform,
         regionalRoute: row.regional_route,
         report: row.report,
+        fetchedAt: row.fetched_at,
+    };
+};
+
+const parseCachedMatchTimeline = (
+    row: MatchTimelineRow,
+    expectedMatchId: string,
+    expectedRegionalRoute: string
+): CachedMatchTimeline => {
+    if (
+        typeof row.match_id !== 'string'
+        || row.match_id !== expectedMatchId
+        || typeof row.regional_route !== 'string'
+        || row.regional_route !== expectedRegionalRoute
+        || !isMatchTimeline(row.timeline)
+        || row.timeline.metadata.matchId !== row.match_id
+        || !isValidDate(row.fetched_at)
+    ) {
+        throw new Error('Stored match timeline is invalid.');
+    }
+
+    return {
+        matchId: row.match_id,
+        regionalRoute: row.regional_route,
+        timeline: row.timeline,
         fetchedAt: row.fetched_at,
     };
 };
@@ -144,6 +194,72 @@ export async function saveCachedReport(input: SaveReportInput): Promise<CachedRe
     }
 
     return parseCachedReport(result.rows[0], cacheKey);
+}
+
+export async function getCachedMatchTimeline(
+    matchId: string,
+    regionalRoute: string
+): Promise<CachedMatchTimeline | null> {
+    const normalizedMatchId = matchId.trim();
+    const normalizedRegionalRoute = regionalRoute.trim().toLocaleLowerCase('en-US');
+
+    if (!normalizedMatchId || !normalizedRegionalRoute) {
+        throw new Error('Match timeline identity is invalid.');
+    }
+
+    const result = await queryDatabase<MatchTimelineRow>(`
+        SELECT match_id, regional_route, timeline, fetched_at
+        FROM match_timelines
+        WHERE match_id = $1
+            AND regional_route = $2
+    `, [normalizedMatchId, normalizedRegionalRoute]);
+
+    if (result.rows.length === 0) {
+        return null;
+    }
+
+    return parseCachedMatchTimeline(
+        result.rows[0],
+        normalizedMatchId,
+        normalizedRegionalRoute
+    );
+}
+
+export async function saveMatchTimeline(
+    input: SaveMatchTimelineInput
+): Promise<CachedMatchTimeline> {
+    const matchId = input.matchId.trim();
+    const regionalRoute = input.regionalRoute.trim().toLocaleLowerCase('en-US');
+
+    if (
+        !matchId
+        || !regionalRoute
+        || !isMatchTimeline(input.timeline)
+        || input.timeline.metadata.matchId !== matchId
+    ) {
+        throw new Error('Match timeline input is invalid.');
+    }
+
+    const result = await queryDatabase<MatchTimelineRow>(`
+        INSERT INTO match_timelines (
+            match_id,
+            regional_route,
+            timeline
+        )
+        VALUES ($1, $2, $3::jsonb)
+        ON CONFLICT (match_id) DO UPDATE SET
+            timeline = EXCLUDED.timeline,
+            fetched_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE match_timelines.regional_route = EXCLUDED.regional_route
+        RETURNING match_id, regional_route, timeline, fetched_at
+    `, [matchId, regionalRoute, JSON.stringify(input.timeline)]);
+
+    if (result.rows.length !== 1) {
+        throw new Error('Match timeline could not be stored.');
+    }
+
+    return parseCachedMatchTimeline(result.rows[0], matchId, regionalRoute);
 }
 
 export async function acquireReportSyncLease(

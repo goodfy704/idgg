@@ -62,6 +62,46 @@ export type MatchData = {
     };
 };
 
+export type TimelinePosition = {
+    x: number;
+    y: number;
+};
+
+export type TimelineParticipantFrame = {
+    participantId: number;
+    currentGold: number;
+    totalGold: number;
+    level: number;
+    xp: number;
+    minionsKilled: number;
+    jungleMinionsKilled: number;
+    position?: TimelinePosition;
+};
+
+export type TimelineEvent = {
+    timestamp: number;
+    type: string;
+    [field: string]: unknown;
+};
+
+export type TimelineFrame = {
+    timestamp: number;
+    participantFrames: Record<string, TimelineParticipantFrame>;
+    events: TimelineEvent[];
+};
+
+export type MatchTimeline = {
+    metadata: {
+        dataVersion: string;
+        matchId: string;
+        participants: string[];
+    };
+    info: {
+        frameInterval: number;
+        frames: TimelineFrame[];
+    };
+};
+
 export type PlayerReport = {
     summoner: SummonerData;
     league: LeagueEntry[];
@@ -152,6 +192,66 @@ export const isMatchData = (value: unknown): value is MatchData => {
         && typeof value.info.queueId === 'number'
         && Array.isArray(value.info.participants)
         && value.info.participants.every(isMatchParticipant);
+};
+
+const isFiniteNumber = (value: unknown): value is number => (
+    typeof value === 'number' && Number.isFinite(value)
+);
+
+const isTimelinePosition = (value: unknown): value is TimelinePosition => (
+    isRecord(value)
+    && isFiniteNumber(value.x)
+    && isFiniteNumber(value.y)
+);
+
+const isTimelineParticipantFrame = (
+    value: unknown
+): value is TimelineParticipantFrame => (
+    isRecord(value)
+    && Number.isInteger(value.participantId)
+    && isFiniteNumber(value.currentGold)
+    && isFiniteNumber(value.totalGold)
+    && isFiniteNumber(value.level)
+    && isFiniteNumber(value.xp)
+    && isFiniteNumber(value.minionsKilled)
+    && isFiniteNumber(value.jungleMinionsKilled)
+    && (value.position === undefined || isTimelinePosition(value.position))
+);
+
+const isTimelineEvent = (value: unknown): value is TimelineEvent => (
+    isRecord(value)
+    && isFiniteNumber(value.timestamp)
+    && typeof value.type === 'string'
+    && value.type.length > 0
+);
+
+const isTimelineFrame = (value: unknown): value is TimelineFrame => {
+    if (
+        !isRecord(value)
+        || !isFiniteNumber(value.timestamp)
+        || !isRecord(value.participantFrames)
+        || !Array.isArray(value.events)
+    ) {
+        return false;
+    }
+
+    return Object.values(value.participantFrames).every(isTimelineParticipantFrame)
+        && value.events.every(isTimelineEvent);
+};
+
+export const isMatchTimeline = (value: unknown): value is MatchTimeline => {
+    if (!isRecord(value) || !isRecord(value.metadata) || !isRecord(value.info)) {
+        return false;
+    }
+
+    return typeof value.metadata.dataVersion === 'string'
+        && value.metadata.dataVersion.length > 0
+        && typeof value.metadata.matchId === 'string'
+        && value.metadata.matchId.length > 0
+        && isStringArray(value.metadata.participants)
+        && isFiniteNumber(value.info.frameInterval)
+        && Array.isArray(value.info.frames)
+        && value.info.frames.every(isTimelineFrame);
 };
 
 export const isPlayerReport = (value: unknown): value is PlayerReport => (
