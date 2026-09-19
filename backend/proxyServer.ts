@@ -1,4 +1,21 @@
+import type { Server } from 'node:http';
+
+import { closeDatabase, verifyDatabaseConnection } from './database';
+import { runMigrations } from './migrate';
+import { getOrSyncPlayerReport, type PlayerReportSync } from './playerSync';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
+import {
+    isLeagueEntries,
+    isMatchData,
+    isPlayerReport,
+    isRiotAccount,
+    isStringArray,
+    isSummonerData,
+    type LeagueEntry,
+    type MatchData,
+    type PlayerReport,
+    type SummonerData,
+} from './riotSchemas';
 
 type HttpRequest = {
     query: Record<string, unknown>;
@@ -19,36 +36,11 @@ type RequestHandler = (request: HttpRequest, response: HttpResponse) => unknown;
 type AsyncRequestHandler = (request: HttpRequest, response: HttpResponse) => Promise<unknown>;
 
 type ExpressApplication = {
-    listen: (port: number, callback: () => void) => void;
+    listen: (port: number, callback: () => void) => Server;
     get: (path: string, handler: RequestHandler) => void;
 };
 
 type ExpressFactory = () => ExpressApplication;
-
-type RiotAccount = {
-    puuid: string;
-};
-
-type SummonerData = {
-    puuid: string;
-    profileIconId: number;
-    summonerLevel: number;
-};
-
-type MatchParticipant = {
-    puuid: string;
-    championName: string;
-    win: boolean;
-    kills: number;
-    deaths: number;
-    assists: number;
-};
-
-type MatchData = {
-    info: {
-        participants: MatchParticipant[];
-    };
-};
 
 type ChampionTotals = {
     games: number;
@@ -61,6 +53,26 @@ type ChampionTotals = {
 type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
 
 const recentMatchCount = 10;
+
+const getServerPort = () => {
+    const configuredPort = process.env.PORT?.trim();
+
+    if (!configuredPort) {
+        return 4000;
+    }
+
+    if (!/^\d+$/.test(configuredPort)) {
+        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
+    }
+
+    const port = Number(configuredPort);
+
+    if (port < 1 || port > 65535) {
+        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
+    }
+
+    return port;
+};
 
 const platforms = [
     'br1', 'eun1', 'euw1', 'jp1', 'kr', 'la1', 'la2', 'me1', 'na1',
@@ -94,48 +106,20 @@ type PlayerQuery = {
     tagLine: string;
 };
 
+type PlayerReportResponse = {
+    report: PlayerReport;
+    cache: {
+        source: 'cache' | 'sync';
+        fetchedAt: string;
+    };
+};
+
 type PlayerLocation = {
     PUUID: string;
     platform: Platform;
     regionalRoute: RegionalRoute;
     summoner: SummonerData;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> => (
-    typeof value === 'object' && value !== null
-);
-
-const isRiotAccount = (value: unknown): value is RiotAccount => (
-    isRecord(value) && typeof value.puuid === 'string'
-);
-
-const isSummonerData = (value: unknown): value is SummonerData => (
-    isRecord(value)
-    && typeof value.puuid === 'string'
-    && typeof value.profileIconId === 'number'
-    && typeof value.summonerLevel === 'number'
-);
-
-const isStringArray = (value: unknown): value is string[] => (
-    Array.isArray(value) && value.every(item => typeof item === 'string')
-);
-
-const isMatchParticipant = (value: unknown): value is MatchParticipant => (
-    isRecord(value)
-    && typeof value.puuid === 'string'
-    && typeof value.championName === 'string'
-    && typeof value.win === 'boolean'
-    && typeof value.kills === 'number'
-    && typeof value.deaths === 'number'
-    && typeof value.assists === 'number'
-);
-
-const isMatchData = (value: unknown): value is MatchData => (
-    isRecord(value)
-    && isRecord(value.info)
-    && Array.isArray(value.info.participants)
-    && value.info.participants.every(isMatchParticipant)
-);
 
 const isValidGameName = (value: string) => {
     const length = Array.from(value).length;
@@ -172,10 +156,8 @@ const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
 const express: ExpressFactory = require('express');
 const app = express();
-
-app.listen(4000, function () {
-    console.log("Server started on port 4000");
-});
+let server: Server | null = null;
+let shuttingDown = false;
 
 const sendRouteError = (response: HttpResponse, error: unknown) => {
     if (response.headersSent) {
@@ -299,7 +281,7 @@ async function getPlayerLocation(gameName: string, tagLine: string): Promise<Pla
     }
 }
 
-async function getRecentMatches(playerLocation: PlayerLocation): Promise<unknown[]> {
+async function getRecentMatches(playerLocation: PlayerLocation): Promise<MatchData[]> {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
     const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=${recentMatchCount}`;
@@ -309,19 +291,64 @@ async function getRecentMatches(playerLocation: PlayerLocation): Promise<unknown
         throw new RiotResponseError();
     }
 
-    const matchDataArray: unknown[] = [];
+    const matchDataArray: MatchData[] = [];
     for (const matchID of gameIDsData) {
         const matchIDAPI = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchID)}`;
         const matchData = await requestRiot(matchIDAPI);
+
+        if (!isMatchData(matchData) || matchData.metadata.matchId !== matchID) {
+            throw new RiotResponseError();
+        }
+
         matchDataArray.push(matchData);
     }
 
     return matchDataArray;
 }
 
-async function getLeagueEntries(playerLocation: PlayerLocation): Promise<unknown> {
+async function getLeagueEntries(playerLocation: PlayerLocation): Promise<LeagueEntry[]> {
     const API_CALL = `https://${playerLocation.platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${encodeURIComponent(playerLocation.PUUID)}`;
-    return requestRiot(API_CALL);
+    const leagueEntries = await requestRiot(API_CALL);
+
+    if (!isLeagueEntries(leagueEntries)) {
+        throw new RiotResponseError();
+    }
+
+    return leagueEntries;
+}
+
+async function synchronizePlayerReport(
+    playerQuery: PlayerQuery
+): Promise<PlayerReportSync | null> {
+    const playerLocation = await getPlayerLocation(
+        playerQuery.gameName,
+        playerQuery.tagLine
+    );
+
+    if (!playerLocation) {
+        return null;
+    }
+
+    const [games, league] = await Promise.all([
+        getRecentMatches(playerLocation),
+        getLeagueEntries(playerLocation),
+    ]);
+
+    const report: PlayerReport = {
+        summoner: playerLocation.summoner,
+        league,
+        games,
+    };
+
+    if (!isPlayerReport(report)) {
+        throw new RiotResponseError();
+    }
+
+    return {
+        platform: playerLocation.platform,
+        regionalRoute: playerLocation.regionalRoute,
+        report,
+    };
 }
 
 app.get('/api/report', withErrorBoundary(async (req, res) => {
@@ -331,25 +358,25 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
         return res.status(400).json({ message: 'gameName and tagLine are required and must be valid.' });
     }
 
-    const playerLocation = await getPlayerLocation(
+    const result = await getOrSyncPlayerReport(
         playerQuery.gameName,
-        playerQuery.tagLine
+        playerQuery.tagLine,
+        () => synchronizePlayerReport(playerQuery)
     );
 
-    if (!playerLocation) {
+    if (!result) {
         return res.status(404).json({ message: 'Player platform could not be found.' });
     }
 
-    const [games, league] = await Promise.all([
-        getRecentMatches(playerLocation),
-        getLeagueEntries(playerLocation),
-    ]);
+    const response: PlayerReportResponse = {
+        report: result.report,
+        cache: {
+            source: result.source,
+            fetchedAt: result.fetchedAt.toISOString(),
+        },
+    };
 
-    res.json({
-        summoner: playerLocation.summoner,
-        league,
-        games,
-    });
+    res.json(response);
 }));
 
 app.get('/championStats', withErrorBoundary(async (req, res) => {
@@ -444,3 +471,69 @@ app.get('/championStats', withErrorBoundary(async (req, res) => {
 
     res.end();
 }));
+
+const closeHttpServer = async (): Promise<void> => {
+    const activeServer = server;
+
+    if (!activeServer) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        activeServer.close(error => {
+            if (error) {
+                reject(error);
+                return;
+            }
+
+            resolve();
+        });
+    });
+    server = null;
+};
+
+const shutdown = async () => {
+    if (shuttingDown) {
+        return;
+    }
+
+    shuttingDown = true;
+
+    try {
+        await closeHttpServer();
+        await closeDatabase();
+    } catch {
+        console.error('Server shutdown failed.');
+        process.exitCode = 1;
+    }
+};
+
+const startServer = async () => {
+    try {
+        const port = getServerPort();
+        await verifyDatabaseConnection();
+        await runMigrations();
+        server = app.listen(port, function () {
+            console.log(`Server started on port ${port}`);
+        });
+    } catch {
+        console.error('Server startup failed. Server was not started.');
+        process.exitCode = 1;
+
+        try {
+            await closeDatabase();
+        } catch {
+            console.error('PostgreSQL pool shutdown failed.');
+        }
+    }
+};
+
+process.once('SIGINT', () => {
+    void shutdown();
+});
+
+process.once('SIGTERM', () => {
+    void shutdown();
+});
+
+void startServer();

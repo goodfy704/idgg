@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import axios from 'axios';
-import Bottleneck from 'bottleneck';
+
+import {
+    setRiotRateLimitCooldown,
+    waitForRiotRateLimit,
+} from './rateLimitCoordinator';
 
 export class RiotRequestError extends Error {
     readonly statusCode: number | null;
@@ -24,15 +28,6 @@ export class RiotResponseError extends Error {
 const maxRiotRequestAttempts = 3;
 const defaultRetryAfterSeconds = 1;
 const maximumRetryAfterSeconds = 120;
-let riotCooldownUntil = 0;
-
-const limiter = new Bottleneck({
-    maxConcurrent: 1,
-    minTime: 50,
-    reservoir: 100,
-    reservoirRefreshAmount: 100,
-    reservoirRefreshInterval: 120000,
-});
 
 const riotApiKey = process.env.RIOT_API_KEY?.trim();
 
@@ -57,21 +52,25 @@ const getRetryAfterSeconds = (headerValue: unknown): number => {
     return Math.min(Math.ceil(parsedSeconds), maximumRetryAfterSeconds);
 };
 
-const waitForRiotCooldown = async () => {
-    const waitTime = riotCooldownUntil - Date.now();
+const getRiotRoutingValue = (url: string): string => {
+    const parsedUrl = new URL(url);
+    const hostMatch = /^([a-z0-9]+)\.api\.riotgames\.com$/i.exec(parsedUrl.hostname);
 
-    if (waitTime > 0) {
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+    if (parsedUrl.protocol !== 'https:' || !hostMatch) {
+        throw new Error('Riot API URL is invalid.');
     }
+
+    return hostMatch[1];
 };
 
 export async function requestRiot(url: string): Promise<unknown> {
+    const routingValue = getRiotRoutingValue(url);
+
     for (let attempt = 1; attempt <= maxRiotRequestAttempts; attempt += 1) {
+        await waitForRiotRateLimit(routingValue);
+
         try {
-            const response = await limiter.schedule(async () => {
-                await waitForRiotCooldown();
-                return riotClient.get<unknown>(url);
-            });
+            const response = await riotClient.get<unknown>(url);
 
             return response.data;
         } catch (error: unknown) {
@@ -85,10 +84,7 @@ export async function requestRiot(url: string): Promise<unknown> {
                 : null;
 
             if (statusCode === 429 && retryAfterSeconds !== null) {
-                riotCooldownUntil = Math.max(
-                    riotCooldownUntil,
-                    Date.now() + retryAfterSeconds * 1000
-                );
+                await setRiotRateLimitCooldown(routingValue, retryAfterSeconds);
 
                 if (attempt < maxRiotRequestAttempts) {
                     continue;
