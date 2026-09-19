@@ -8,6 +8,10 @@ type RiotRateLimitRow = {
     database_now: unknown;
 };
 
+type RiotCooldownRow = {
+    cooldown_until: unknown;
+};
+
 type RiotRateLimit = {
     windowSeconds: number;
     requestLimit: number;
@@ -25,6 +29,9 @@ const riotRateLimits: RiotRateLimit[] = [
 ];
 
 const reservationSafetyMilliseconds = 25;
+const cooldownRateLimit = riotRateLimits.reduce((shortest, candidate) => (
+    candidate.windowSeconds < shortest.windowSeconds ? candidate : shortest
+));
 
 const delay = async (milliseconds: number): Promise<void> => {
     await new Promise<void>(resolve => setTimeout(resolve, milliseconds));
@@ -45,6 +52,16 @@ const isNonnegativeInteger = (value: unknown): value is number => (
 const isValidDate = (value: unknown): value is Date => (
     value instanceof Date && !Number.isNaN(value.getTime())
 );
+
+const normalizeRoutingValue = (routingValue: string): string => {
+    const normalizedRoutingValue = routingValue.trim().toLocaleLowerCase('en-US');
+
+    if (!/^[a-z0-9]{2,16}$/.test(normalizedRoutingValue)) {
+        throw new Error('Riot routing value is invalid.');
+    }
+
+    return normalizedRoutingValue;
+};
 
 const parseRateLimitRow = (row: RiotRateLimitRow) => {
     if (
@@ -154,11 +171,7 @@ const reserveRiotRequest = async (routingValue: string): Promise<number> => (
 );
 
 export async function waitForRiotRateLimit(routingValue: string): Promise<void> {
-    const normalizedRoutingValue = routingValue.trim().toLocaleLowerCase('en-US');
-
-    if (!/^[a-z0-9]{2,16}$/.test(normalizedRoutingValue)) {
-        throw new Error('Riot routing value is invalid.');
-    }
+    const normalizedRoutingValue = normalizeRoutingValue(routingValue);
 
     while (true) {
         const waitMilliseconds = await reserveRiotRequest(normalizedRoutingValue);
@@ -169,4 +182,65 @@ export async function waitForRiotRateLimit(routingValue: string): Promise<void> 
 
         await delay(waitMilliseconds);
     }
+}
+
+export async function setRiotRateLimitCooldown(
+    routingValue: string,
+    retryAfterSeconds: number
+): Promise<Date> {
+    const normalizedRoutingValue = normalizeRoutingValue(routingValue);
+
+    if (!Number.isInteger(retryAfterSeconds) || retryAfterSeconds < 0) {
+        throw new Error('Riot retry delay is invalid.');
+    }
+
+    return withDatabaseTransaction(async client => {
+        await client.query(`
+            INSERT INTO riot_rate_limits (
+                routing_value,
+                window_seconds,
+                request_limit
+            )
+            VALUES ($1, $2, $3)
+            ON CONFLICT (routing_value, window_seconds) DO NOTHING
+        `, [
+            normalizedRoutingValue,
+            cooldownRateLimit.windowSeconds,
+            cooldownRateLimit.requestLimit,
+        ]);
+
+        const result = await client.query<RiotCooldownRow>(`
+            UPDATE riot_rate_limits
+            SET
+                request_count = request_limit,
+                window_started_at = GREATEST(
+                    CASE
+                        WHEN request_count >= request_limit
+                        THEN window_started_at
+                            + (window_seconds * INTERVAL '1 second')
+                        ELSE clock_timestamp()
+                    END,
+                    clock_timestamp() + ($3 * INTERVAL '1 second')
+                ) - (window_seconds * INTERVAL '1 second'),
+                updated_at = clock_timestamp()
+            WHERE routing_value = $1
+                AND window_seconds = $2
+            RETURNING
+                window_started_at
+                    + (window_seconds * INTERVAL '1 second') AS cooldown_until
+        `, [
+            normalizedRoutingValue,
+            cooldownRateLimit.windowSeconds,
+            retryAfterSeconds,
+        ]);
+
+        if (
+            result.rows.length !== 1
+            || !isValidDate(result.rows[0].cooldown_until)
+        ) {
+            throw new Error('Riot rate limit cooldown could not be stored.');
+        }
+
+        return result.rows[0].cooldown_until;
+    });
 }
