@@ -54,6 +54,26 @@ type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
 
 const recentMatchCount = 10;
 
+const getServerPort = () => {
+    const configuredPort = process.env.PORT?.trim();
+
+    if (!configuredPort) {
+        return 4000;
+    }
+
+    if (!/^\d+$/.test(configuredPort)) {
+        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
+    }
+
+    const port = Number(configuredPort);
+
+    if (port < 1 || port > 65535) {
+        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
+    }
+
+    return port;
+};
+
 const platforms = [
     'br1', 'eun1', 'euw1', 'jp1', 'kr', 'la1', 'la2', 'me1', 'na1',
     'oc1', 'ph2', 'ru', 'sg2', 'th2', 'tr1', 'tw2', 'vn2',
@@ -490,13 +510,14 @@ const shutdown = async () => {
 
 const startServer = async () => {
     try {
+        const port = getServerPort();
         await verifyDatabaseConnection();
         await runMigrations();
-        server = app.listen(4000, function () {
-            console.log('Server started on port 4000');
+        server = app.listen(port, function () {
+            console.log(`Server started on port ${port}`);
         });
     } catch {
-        console.error('Database startup failed. Server was not started.');
+        console.error('Server startup failed. Server was not started.');
         process.exitCode = 1;
 
         try {

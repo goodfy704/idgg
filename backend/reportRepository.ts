@@ -29,6 +29,10 @@ type SaveReportInput = {
     report: PlayerReport;
 };
 
+type SyncLeaseRow = {
+    lease_expires_at: unknown;
+};
+
 const normalizeCachePart = (value: string) => (
     value.normalize('NFKC').toLocaleLowerCase('en-US')
 );
@@ -140,4 +144,77 @@ export async function saveCachedReport(input: SaveReportInput): Promise<CachedRe
     }
 
     return parseCachedReport(result.rows[0], cacheKey);
+}
+
+export async function acquireReportSyncLease(
+    cacheKey: string,
+    ownerId: string,
+    leaseDurationMilliseconds: number
+): Promise<boolean> {
+    const result = await queryDatabase<SyncLeaseRow>(`
+        INSERT INTO report_sync_state (
+            cache_key,
+            owner_id,
+            lease_expires_at
+        )
+        VALUES (
+            $1,
+            $2::uuid,
+            CURRENT_TIMESTAMP + ($3 * INTERVAL '1 millisecond')
+        )
+        ON CONFLICT (cache_key) DO UPDATE SET
+            owner_id = EXCLUDED.owner_id,
+            lease_expires_at = EXCLUDED.lease_expires_at,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE report_sync_state.lease_expires_at <= CURRENT_TIMESTAMP
+        RETURNING lease_expires_at
+    `, [cacheKey, ownerId, leaseDurationMilliseconds]);
+
+    if (result.rows.length === 0) {
+        return false;
+    }
+
+    if (!isValidDate(result.rows[0].lease_expires_at)) {
+        throw new Error('Report sync lease is invalid.');
+    }
+
+    return true;
+}
+
+export async function renewReportSyncLease(
+    cacheKey: string,
+    ownerId: string,
+    leaseDurationMilliseconds: number
+): Promise<boolean> {
+    const result = await queryDatabase<SyncLeaseRow>(`
+        UPDATE report_sync_state
+        SET
+            lease_expires_at = CURRENT_TIMESTAMP + ($3 * INTERVAL '1 millisecond'),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE cache_key = $1
+            AND owner_id = $2::uuid
+            AND lease_expires_at > CURRENT_TIMESTAMP
+        RETURNING lease_expires_at
+    `, [cacheKey, ownerId, leaseDurationMilliseconds]);
+
+    if (result.rows.length === 0) {
+        return false;
+    }
+
+    if (!isValidDate(result.rows[0].lease_expires_at)) {
+        throw new Error('Report sync lease is invalid.');
+    }
+
+    return true;
+}
+
+export async function releaseReportSyncLease(
+    cacheKey: string,
+    ownerId: string
+): Promise<void> {
+    await queryDatabase(`
+        DELETE FROM report_sync_state
+        WHERE cache_key = $1
+            AND owner_id = $2::uuid
+    `, [cacheKey, ownerId]);
 }
