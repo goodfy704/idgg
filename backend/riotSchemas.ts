@@ -26,6 +26,8 @@ export type RuneStyle = {
 
 export type MatchParticipant = {
     puuid: string;
+    participantId: number;
+    teamPosition: string;
     championName: string;
     riotIdGameName: string;
     riotIdTagline: string;
@@ -55,6 +57,8 @@ export type MatchData = {
         matchId: string;
     };
     info: {
+        gameStartTimestamp: number;
+        gameVersion: string;
         gameDuration: number;
         gameMode: string;
         queueId: number;
@@ -78,10 +82,20 @@ export type TimelineParticipantFrame = {
     position?: TimelinePosition;
 };
 
+export type TimelineParticipant = {
+    participantId: number;
+    puuid: string;
+};
+
 export type TimelineEvent = {
     timestamp: number;
     type: string;
     [field: string]: unknown;
+};
+
+export type ChampionKillTimelineEvent = TimelineEvent & {
+    type: 'CHAMPION_KILL';
+    victimId: number;
 };
 
 export type TimelineFrame = {
@@ -98,6 +112,7 @@ export type MatchTimeline = {
     };
     info: {
         frameInterval: number;
+        participants: TimelineParticipant[];
         frames: TimelineFrame[];
     };
 };
@@ -112,6 +127,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> => (
     typeof value === 'object'
     && value !== null
     && !Array.isArray(value)
+);
+
+const isFiniteNumber = (value: unknown): value is number => (
+    typeof value === 'number' && Number.isFinite(value)
+);
+
+const isPositiveInteger = (value: unknown): value is number => (
+    isFiniteNumber(value) && Number.isInteger(value) && value > 0
+);
+
+const isNonNegativeInteger = (value: unknown): value is number => (
+    isFiniteNumber(value) && Number.isInteger(value) && value >= 0
 );
 
 export const isRiotAccount = (value: unknown): value is RiotAccount => (
@@ -170,6 +197,8 @@ const isMatchParticipant = (value: unknown): value is MatchParticipant => {
 
     return typeof value.puuid === 'string'
         && value.puuid.length > 0
+        && isPositiveInteger(value.participantId)
+        && typeof value.teamPosition === 'string'
         && typeof value.championName === 'string'
         && typeof value.riotIdGameName === 'string'
         && typeof value.riotIdTagline === 'string'
@@ -187,16 +216,15 @@ export const isMatchData = (value: unknown): value is MatchData => {
 
     return typeof value.metadata.matchId === 'string'
         && value.metadata.matchId.length > 0
+        && isPositiveInteger(value.info.gameStartTimestamp)
+        && typeof value.info.gameVersion === 'string'
+        && value.info.gameVersion.length > 0
         && typeof value.info.gameDuration === 'number'
         && typeof value.info.gameMode === 'string'
         && typeof value.info.queueId === 'number'
         && Array.isArray(value.info.participants)
         && value.info.participants.every(isMatchParticipant);
 };
-
-const isFiniteNumber = (value: unknown): value is number => (
-    typeof value === 'number' && Number.isFinite(value)
-);
 
 const isTimelinePosition = (value: unknown): value is TimelinePosition => (
     isRecord(value)
@@ -208,34 +236,74 @@ const isTimelineParticipantFrame = (
     value: unknown
 ): value is TimelineParticipantFrame => (
     isRecord(value)
-    && Number.isInteger(value.participantId)
-    && isFiniteNumber(value.currentGold)
-    && isFiniteNumber(value.totalGold)
-    && isFiniteNumber(value.level)
-    && isFiniteNumber(value.xp)
-    && isFiniteNumber(value.minionsKilled)
-    && isFiniteNumber(value.jungleMinionsKilled)
+    && isPositiveInteger(value.participantId)
+    && isNonNegativeInteger(value.currentGold)
+    && isNonNegativeInteger(value.totalGold)
+    && isPositiveInteger(value.level)
+    && isNonNegativeInteger(value.xp)
+    && isNonNegativeInteger(value.minionsKilled)
+    && isNonNegativeInteger(value.jungleMinionsKilled)
     && (value.position === undefined || isTimelinePosition(value.position))
 );
 
-const isTimelineEvent = (value: unknown): value is TimelineEvent => (
+const isTimelineParticipant = (value: unknown): value is TimelineParticipant => (
     isRecord(value)
-    && isFiniteNumber(value.timestamp)
-    && typeof value.type === 'string'
-    && value.type.length > 0
+    && isPositiveInteger(value.participantId)
+    && typeof value.puuid === 'string'
+    && value.puuid.length > 0
 );
+
+const isTimelineParticipants = (
+    value: unknown
+): value is TimelineParticipant[] => {
+    if (!Array.isArray(value) || value.length === 0 || !value.every(isTimelineParticipant)) {
+        return false;
+    }
+
+    const participantIds = new Set(value.map(participant => participant.participantId));
+    const participantPUUIDs = new Set(value.map(participant => participant.puuid));
+
+    return participantIds.size === value.length
+        && participantPUUIDs.size === value.length;
+};
+
+export const isChampionKillTimelineEvent = (
+    value: unknown
+): value is ChampionKillTimelineEvent => (
+    isRecord(value)
+    && value.type === 'CHAMPION_KILL'
+    && isNonNegativeInteger(value.timestamp)
+    && isPositiveInteger(value.victimId)
+);
+
+const isTimelineEvent = (value: unknown): value is TimelineEvent => {
+    if (
+        !isRecord(value)
+        || !isNonNegativeInteger(value.timestamp)
+        || typeof value.type !== 'string'
+        || value.type.length === 0
+    ) {
+        return false;
+    }
+
+    return value.type !== 'CHAMPION_KILL'
+        || isChampionKillTimelineEvent(value);
+};
 
 const isTimelineFrame = (value: unknown): value is TimelineFrame => {
     if (
         !isRecord(value)
-        || !isFiniteNumber(value.timestamp)
+        || !isNonNegativeInteger(value.timestamp)
         || !isRecord(value.participantFrames)
         || !Array.isArray(value.events)
     ) {
         return false;
     }
 
-    return Object.values(value.participantFrames).every(isTimelineParticipantFrame)
+    return Object.entries(value.participantFrames).every(([participantId, frame]) => (
+        isTimelineParticipantFrame(frame)
+        && participantId === `${frame.participantId}`
+    ))
         && value.events.every(isTimelineEvent);
 };
 
@@ -244,14 +312,30 @@ export const isMatchTimeline = (value: unknown): value is MatchTimeline => {
         return false;
     }
 
-    return typeof value.metadata.dataVersion === 'string'
-        && value.metadata.dataVersion.length > 0
-        && typeof value.metadata.matchId === 'string'
-        && value.metadata.matchId.length > 0
-        && isStringArray(value.metadata.participants)
-        && isFiniteNumber(value.info.frameInterval)
-        && Array.isArray(value.info.frames)
-        && value.info.frames.every(isTimelineFrame);
+    const metadataParticipants = value.metadata.participants;
+    const timelineParticipants = value.info.participants;
+
+    if (
+        typeof value.metadata.dataVersion !== 'string'
+        || value.metadata.dataVersion.length === 0
+        || typeof value.metadata.matchId !== 'string'
+        || value.metadata.matchId.length === 0
+        || !isStringArray(metadataParticipants)
+        || new Set(metadataParticipants).size !== metadataParticipants.length
+        || !isPositiveInteger(value.info.frameInterval)
+        || !isTimelineParticipants(timelineParticipants)
+        || !Array.isArray(value.info.frames)
+        || !value.info.frames.every(isTimelineFrame)
+    ) {
+        return false;
+    }
+
+    const metadataParticipantPUUIDs = new Set(metadataParticipants);
+
+    return timelineParticipants.length === metadataParticipants.length
+        && timelineParticipants.every(participant => (
+            metadataParticipantPUUIDs.has(participant.puuid)
+        ));
 };
 
 export const isPlayerReport = (value: unknown): value is PlayerReport => (
