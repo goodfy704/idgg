@@ -129,6 +129,16 @@ The backend exposes `GET /health` for process liveness and `GET /ready` for traf
 
 `SIGINT` and `SIGTERM` make readiness fail immediately, stop new HTTP connections, drain active connections, and close PostgreSQL. `SHUTDOWN_GRACE_MS` bounds the drain before the process terminates with an error. Unknown routes and unexpected failures return stable JSON without exception details, credentials, or upstream response bodies.
 
+Build the portable production artifact from the repository root:
+
+```text
+npm run build:production
+```
+
+This emits browser assets into `dist` and compiled backend files plus migration SQL into `backend/dist`. Start the compiled artifact with `npm --prefix backend run start:production`, or run its migration entry point with `npm --prefix backend run migrate:production`. In staging and production, Express serves the Vite assets and browser routes while keeping `/api` same-origin. Startup fails before listening when the frontend index is missing.
+
+Build the provider-neutral container from the repository root with `docker build -t idgg .`. The multi-stage image compiles both applications, installs only backend production dependencies in the final image, includes migration SQL, contains no local environment files, runs as the unprivileged `node` user, and starts the compiled backend directly. Supply all required environment values at runtime; do not put them in the image or build arguments.
+
 ## Production readiness
 
 The current public-operation inventory, confirmed gaps, decisions, and launch blockers are recorded in [the production-readiness audit](docs/operations/production-readiness-audit.md). The audit does not authorize a public launch. IDGG must remain private until its operational controls are implemented and Riot has approved production access.

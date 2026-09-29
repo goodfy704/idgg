@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dockerignore
+node_modules
+backend/node_modules
+dist
+backend/dist
+coverage
+.env
+.env.*
+backend/.env
+backend/.env.*
+*.log
+AGENTS.md
+IDGG-review-and-launch-plan.md
+docs
+README.md

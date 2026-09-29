@@ -7,9 +7,13 @@
   },
   "scripts": {
     "start": "tsx proxyServer.ts",
+    "start:production": "node dist/proxyServer.js",
     "dev": "tsx watch proxyServer.ts",
     "migrate": "tsx migrate.ts",
-    "typecheck": "tsc --noEmit"
+    "migrate:production": "node dist/migrate.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"require('node:fs').cpSync('migrations', 'dist/migrations', { recursive: true })\""
   },
   "dependencies": {
     "axios": "^1.7.8",

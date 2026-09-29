@@ -12,6 +12,7 @@
 # production
 /build
 /dist
+/backend/dist
 
 # misc
 .DS_Store

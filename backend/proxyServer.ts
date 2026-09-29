@@ -1,4 +1,6 @@
+import { access } from 'node:fs/promises';
 import type { Server } from 'node:http';
+import { resolve } from 'node:path';
 
 import { getServerConfig, type RiotPlatform } from './config';
 import { closeDatabase, verifyDatabaseConnection } from './database';
@@ -20,6 +22,7 @@ import {
 import { createServerLifecycle } from './serverLifecycle';
 
 type HttpRequest = {
+    path: string;
     query: Record<string, unknown>;
 };
 
@@ -29,6 +32,10 @@ type HttpResponse = {
     status: (statusCode: number) => HttpResponse;
     setHeader: (name: string, value: string) => void;
     send: (body: unknown) => HttpResponse;
+    sendFile: (
+        path: string,
+        callback: (error?: Error) => void
+    ) => void;
     json: (body: unknown) => HttpResponse;
     write: (body: string) => boolean;
     end: () => void;
@@ -55,6 +62,16 @@ type ExpressApplication = {
 
 type ExpressFactory = () => ExpressApplication;
 
+type ExpressModule = ExpressFactory & {
+    static: (
+        root: string,
+        options: {
+            index: boolean;
+            redirect: boolean;
+        }
+    ) => RequestHandler;
+};
+
 type ChampionTotals = {
     games: number;
     wins: number;
@@ -68,6 +85,8 @@ type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
 const recentMatchCount = 10;
 const serverConfig = getServerConfig();
 const platforms = serverConfig.supportedPlatforms;
+const frontendDistDirectory = resolve(__dirname, '..', '..', 'dist');
+const frontendIndexPath = resolve(frontendDistDirectory, 'index.html');
 
 const platformToRegionalRoute: Record<RiotPlatform, RegionalRoute> = {
     br1: 'americas',
@@ -142,7 +161,7 @@ const getPlayerQuery = (request: HttpRequest): PlayerQuery | null => {
 
 const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
-const express: ExpressFactory = require('express');
+const express: ExpressModule = require('express');
 const app = express();
 app.disable('x-powered-by');
 let server: Server | null = null;
@@ -490,6 +509,24 @@ app.get('/championStats', withErrorBoundary(async (req, res) => {
     res.end();
 }));
 
+if (serverConfig.environment !== 'development') {
+    app.use(express.static(frontendDistDirectory, {
+        index: false,
+        redirect: false,
+    }));
+    app.get('*', (req, res) => {
+        if (req.path === '/api' || req.path.startsWith('/api/')) {
+            return res.status(404).json({ message: 'Route not found.' });
+        }
+
+        res.sendFile(frontendIndexPath, error => {
+            if (error) {
+                sendRouteError(res, error);
+            }
+        });
+    });
+}
+
 app.use((_req, res) => (
     res.status(404).json({ message: 'Route not found.' })
 ));
@@ -508,6 +545,11 @@ const shutdown = async (): Promise<void> => {
 const startServer = async () => {
     try {
         const port = serverConfig.port;
+
+        if (serverConfig.environment !== 'development') {
+            await access(frontendIndexPath);
+        }
+
         await verifyDatabaseConnection();
         await runMigrations();
 
