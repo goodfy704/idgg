@@ -4,7 +4,11 @@ import {
     buildPracticeComparison,
     calculatePracticeAggregate,
 } from './practiceComparison';
-import { loadPracticeFocus, savePracticeFocus } from './practiceFocusStorage';
+import {
+    clearPracticeFocus,
+    loadPracticeFocus,
+    savePracticeFocus,
+} from './practiceFocusStorage';
 import type {
     PracticeBaselineMatch,
     PracticeEvidenceMatch,
@@ -26,20 +30,24 @@ type PracticeReviewProps = {
 type MetricPresentation = {
     title: string;
     shortLabel: string;
+    definition: string;
 };
 
 const metricPresentation: Record<PracticeMetricKey, MetricPresentation> = {
     csAt10: {
         title: 'CS at 10 minutes',
         shortLabel: 'CS',
+        definition: 'Lane minions plus jungle minions recorded in the exact 10:00 frame.',
     },
     deathsAtOrBefore10: {
         title: 'Deaths by 10 minutes',
         shortLabel: 'deaths',
+        definition: 'Champion-kill events where this player was the victim from game start through 10:00.',
     },
     totalGoldAt10: {
         title: 'Total gold at 10 minutes',
         shortLabel: 'gold',
+        definition: 'Total gold recorded in the exact 10:00 frame.',
     },
 };
 
@@ -132,6 +140,12 @@ type FocusEvidenceCardProps = {
     sampleLabel: 'Baseline' | 'Follow-up';
 };
 
+type PracticeStorageIssue =
+    | 'invalid_saved_data'
+    | 'storage_unavailable'
+    | 'invalid_save'
+    | null;
+
 function FocusEvidenceCard({ match, metricKey, sampleLabel }: FocusEvidenceCardProps) {
     return (
         <article className="min-w-0 rounded-lg border border-dark-silver bg-black-russian/60 p-4">
@@ -169,37 +183,46 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
     const [selectedMetricKey, setSelectedMetricKey] = useState<PracticeMetricKey | null>(null);
     const [savedFocus, setSavedFocus] = useState<SavedPracticeFocus | null>(null);
     const [focusLoadedForPUUID, setFocusLoadedForPUUID] = useState<string | null>(null);
-    const [storageError, setStorageError] = useState<string | null>(null);
+    const [storageIssue, setStorageIssue] = useState<PracticeStorageIssue>(null);
     const [saveConfirmation, setSaveConfirmation] = useState<string | null>(null);
+    const [clearConfirmationVisible, setClearConfirmationVisible] = useState(false);
 
     useEffect(() => {
         setFocusLoadedForPUUID(null);
         setSaveConfirmation(null);
+        setClearConfirmationVisible(false);
 
         const result = loadPracticeFocus(playerPUUID);
 
         if (result.status === 'loaded') {
             setSavedFocus(result.focus);
             setSelectedMetricKey(result.focus.metricKey);
-            setStorageError(null);
+            setStorageIssue(null);
         } else if (result.status === 'empty') {
             setSavedFocus(null);
             setSelectedMetricKey(null);
-            setStorageError(null);
+            setStorageIssue(null);
         } else if (result.status === 'invalid') {
             setSavedFocus(null);
             setSelectedMetricKey(null);
-            setStorageError('The saved focus for this player is invalid. Saving a new focus will replace it.');
+            setStorageIssue('invalid_saved_data');
         } else {
             setSavedFocus(null);
             setSelectedMetricKey(null);
-            setStorageError('Browser storage is unavailable. Your focus cannot be loaded or saved.');
+            setStorageIssue('storage_unavailable');
         }
 
         setFocusLoadedForPUUID(playerPUUID);
     }, [playerPUUID]);
 
     const focusIsLoading = focusLoadedForPUUID !== playerPUUID;
+    const storageError = storageIssue === 'invalid_saved_data'
+        ? 'The saved focus for this player is invalid. Remove it or save a new focus to replace it.'
+        : storageIssue === 'storage_unavailable'
+            ? 'Browser storage is unavailable. Your focus cannot be loaded or saved.'
+            : storageIssue === 'invalid_save'
+                ? 'The current focus or baseline data is invalid and was not saved.'
+                : null;
     const selectedMetricDefinition = selectedMetricKey === null
         ? null
         : practice.metrics.find(metric => metric.key === selectedMetricKey) ?? null;
@@ -228,7 +251,8 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
 
         if (result.status === 'saved') {
             setSavedFocus(result.focus);
-            setStorageError(null);
+            setStorageIssue(null);
+            setClearConfirmationVisible(false);
             setSaveConfirmation(
                 `Focus and ${getSampleLabel(result.focus.baselineMatches.length)} saved in this browser.`
             );
@@ -236,10 +260,27 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
         }
 
         setSaveConfirmation(null);
-        setStorageError(
-            result.status === 'unavailable'
-                ? 'Browser storage is unavailable. Your focus could not be saved.'
-                : 'The current focus or baseline data is invalid and was not saved.'
+        setStorageIssue(
+            result.status === 'unavailable' ? 'storage_unavailable' : 'invalid_save'
+        );
+    };
+
+    const handleClearFocus = () => {
+        const result = clearPracticeFocus(playerPUUID);
+
+        if (result.status === 'cleared') {
+            setSavedFocus(null);
+            setSelectedMetricKey(null);
+            setStorageIssue(null);
+            setClearConfirmationVisible(false);
+            setSaveConfirmation('Saved focus and baseline cleared from this browser.');
+            return;
+        }
+
+        setSaveConfirmation(null);
+        setClearConfirmationVisible(false);
+        setStorageIssue(
+            result.status === 'unavailable' ? 'storage_unavailable' : 'invalid_save'
         );
     };
 
@@ -281,6 +322,9 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                             <p className="mt-2 text-gray-light">
                                 Matches are compared only with this player&apos;s saved {getAggregateLabel(savedMetricDefinition.aggregation).toLowerCase()} baseline.
                             </p>
+                            <p className="mt-1 text-sm text-gray-light">
+                                {metricPresentation[savedFocus.metricKey].definition}
+                            </p>
                         </div>
                         <p className="text-sm text-gray-light">
                             Saved {gameDateFormatter.format(new Date(savedFocus.savedAt))}
@@ -320,6 +364,37 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                     <p className="mt-3 text-sm text-gray-light">
                         {comparison.currentBaselineMatchCount} saved baseline {comparison.currentBaselineMatchCount === 1 ? 'match is' : 'matches are'} still in the current report and not counted again. Only different match IDs with game starts after the saved time can enter follow-up.
                     </p>
+                    <div className="mt-4">
+                        {!clearConfirmationVisible ? (
+                            <button
+                                type="button"
+                                onClick={() => setClearConfirmationVisible(true)}
+                                className="rounded-lg border border-dark-silver px-4 py-2 text-sm text-gray-light transition hover:border-red hover:text-white"
+                            >
+                                Clear saved focus and baseline
+                            </button>
+                        ) : (
+                            <div role="alert" className="rounded-lg border border-red bg-red/10 p-4">
+                                <p>This permanently removes this player&apos;s saved focus and baseline from this browser.</p>
+                                <div className="mt-3 flex flex-wrap gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={handleClearFocus}
+                                        className="rounded-lg bg-red px-4 py-2 font-semibold text-white"
+                                    >
+                                        Confirm clear
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setClearConfirmationVisible(false)}
+                                        className="rounded-lg border border-dark-silver px-4 py-2 text-gray-light"
+                                    >
+                                        Keep saved focus
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     {comparison.followUp.matches.length === 0 && (
                         <p className="mt-4 rounded-lg border border-dark-silver bg-dark-plume/45 p-4 text-gray-light">
                             No comparable post-focus matches yet. Return after playing a newer ranked-solo BOTTOM match.
@@ -399,9 +474,18 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
             ) : null}
 
             {storageError && (
-                <p role="alert" className="mt-4 rounded-lg border border-red bg-red/10 p-4 text-gray-light">
-                    {storageError}
-                </p>
+                <div role="alert" className="mt-4 rounded-lg border border-red bg-red/10 p-4 text-gray-light">
+                    <p>{storageError}</p>
+                    {storageIssue === 'invalid_saved_data' && (
+                        <button
+                            type="button"
+                            onClick={handleClearFocus}
+                            className="mt-3 rounded-lg border border-dark-silver px-4 py-2 text-sm text-white"
+                        >
+                            Remove invalid saved data
+                        </button>
+                    )}
+                </div>
             )}
 
             {saveConfirmation && (
@@ -444,6 +528,9 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                                                     {getAggregateLabel(metric.aggregation)}
                                                 </span>
                                                 <span className="mt-1 block text-lg">{presentation.title}</span>
+                                                <span className="mt-2 block text-sm text-gray-light">
+                                                    {presentation.definition}
+                                                </span>
                                             </span>
                                             <input
                                                 type="radio"
@@ -485,7 +572,7 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                     <div className="mt-8">
                         <h3 className="text-xl">Current report evidence</h3>
                         <p className="mt-1 text-sm text-gray-light">
-                            Every value below comes from that match&apos;s exact 10-minute timeline frame.
+                            CS and gold use the exact 10-minute frame. Deaths count champion-kill events through 10:00.
                         </p>
                         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                             {evidenceMatches.map(match => (

@@ -40,7 +40,19 @@ type SavePracticeFocusResult =
         status: 'unavailable';
     };
 
-const storageVersion = 1;
+type ClearPracticeFocusResult =
+    | {
+        status: 'cleared';
+    }
+    | {
+        status: 'invalid_input';
+    }
+    | {
+        status: 'unavailable';
+    };
+
+const storageVersion: SavedPracticeFocus['storageVersion'] = 1;
+const metricVersion: SavedPracticeFocus['metricVersion'] = 1;
 const storageKeyPrefix = 'idgg:practice-focus:v1:';
 const tenMinuteTimestampMilliseconds = 600000;
 
@@ -91,7 +103,7 @@ const isSavedPracticeFocus = (
     if (
         !isRecord(value)
         || value.storageVersion !== storageVersion
-        || value.metricVersion !== 1
+        || value.metricVersion !== metricVersion
         || value.ownerPUUID !== ownerPUUID
         || !isPracticeMetricKey(value.metricKey)
         || !isIsoTimestamp(value.savedAt)
@@ -165,7 +177,7 @@ export function savePracticeFocus(
 
     if (
         !normalizedPUUID
-        || input.metricVersion !== 1
+        || input.metricVersion !== metricVersion
         || input.evidence.length === 0
     ) {
         return { status: 'invalid_input' };
@@ -175,7 +187,7 @@ export function savePracticeFocus(
     const baselineMatches = getBaselineMatches(input.evidence, input.metricKey);
     const focus: SavedPracticeFocus = {
         storageVersion,
-        metricVersion: input.metricVersion,
+        metricVersion,
         ownerPUUID: normalizedPUUID,
         metricKey: input.metricKey,
         savedAt,
@@ -192,6 +204,21 @@ export function savePracticeFocus(
             status: 'saved',
             focus,
         };
+    } catch {
+        return { status: 'unavailable' };
+    }
+}
+
+export function clearPracticeFocus(ownerPUUID: string): ClearPracticeFocusResult {
+    const normalizedPUUID = ownerPUUID.trim();
+
+    if (!normalizedPUUID) {
+        return { status: 'invalid_input' };
+    }
+
+    try {
+        window.localStorage.removeItem(getStorageKey(normalizedPUUID));
+        return { status: 'cleared' };
     } catch {
         return { status: 'unavailable' };
     }

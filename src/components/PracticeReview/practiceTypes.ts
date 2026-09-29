@@ -92,8 +92,8 @@ export type PracticeBaselineMatch = {
 };
 
 export type SavedPracticeFocus = {
-    storageVersion: number;
-    metricVersion: number;
+    storageVersion: 1;
+    metricVersion: 1;
     ownerPUUID: string;
     metricKey: PracticeMetricKey;
     savedAt: string;
