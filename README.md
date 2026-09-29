@@ -120,3 +120,7 @@ A complete baseline requires the clean installation commands, all TypeScript and
 ## Deployment note
 
 The Vite `/api` proxy is for local development. A deployed frontend must use its hosting or reverse-proxy configuration to send same-origin `/api` requests to the Express backend over HTTPS. The Riot API key must remain available only to the backend process.
+
+## Production readiness
+
+The current public-operation inventory, confirmed gaps, decisions, and launch blockers are recorded in [the production-readiness audit](docs/operations/production-readiness-audit.md). The audit does not authorize a public launch. IDGG must remain private until its operational controls are implemented and Riot has approved production access.
