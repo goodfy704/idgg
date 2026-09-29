@@ -63,6 +63,7 @@ export type PracticeMatchExclusionReason =
     | 'ten_minute_frame_ambiguous'
     | 'participant_frame_missing'
     | 'participant_frame_mismatch'
+    | 'timeline_unavailable'
     | 'metric_value_invalid';
 
 export type PracticeMatchReference = {
@@ -253,7 +254,7 @@ export function evaluatePracticeMatchEligibility(
     };
 }
 
-const excludeEligibleMatch = (
+export const excludePracticeMatch = (
     eligibleMatch: EligiblePracticeMatch,
     reason: PracticeMatchExclusionReason
 ): ExcludedPracticeMatch => ({
@@ -267,7 +268,7 @@ export function calculatePracticeMatchEvidence(
     timeline: MatchTimeline
 ): PracticeMatchCalculation {
     if (timeline.metadata.matchId !== eligibleMatch.match.matchId) {
-        return excludeEligibleMatch(eligibleMatch, 'timeline_match_mismatch');
+        return excludePracticeMatch(eligibleMatch, 'timeline_match_mismatch');
     }
 
     const timelinePlayers = timeline.info.participants.filter(
@@ -275,17 +276,17 @@ export function calculatePracticeMatchEvidence(
     );
 
     if (timelinePlayers.length === 0) {
-        return excludeEligibleMatch(eligibleMatch, 'timeline_player_missing');
+        return excludePracticeMatch(eligibleMatch, 'timeline_player_missing');
     }
 
     if (timelinePlayers.length > 1) {
-        return excludeEligibleMatch(eligibleMatch, 'timeline_player_ambiguous');
+        return excludePracticeMatch(eligibleMatch, 'timeline_player_ambiguous');
     }
 
     const timelinePlayer = timelinePlayers[0];
 
     if (timelinePlayer.participantId !== eligibleMatch.participantId) {
-        return excludeEligibleMatch(eligibleMatch, 'timeline_participant_mismatch');
+        return excludePracticeMatch(eligibleMatch, 'timeline_participant_mismatch');
     }
 
     const tenMinuteFrames = timeline.info.frames.filter(
@@ -293,22 +294,22 @@ export function calculatePracticeMatchEvidence(
     );
 
     if (tenMinuteFrames.length === 0) {
-        return excludeEligibleMatch(eligibleMatch, 'ten_minute_frame_missing');
+        return excludePracticeMatch(eligibleMatch, 'ten_minute_frame_missing');
     }
 
     if (tenMinuteFrames.length > 1) {
-        return excludeEligibleMatch(eligibleMatch, 'ten_minute_frame_ambiguous');
+        return excludePracticeMatch(eligibleMatch, 'ten_minute_frame_ambiguous');
     }
 
     const tenMinuteFrame = tenMinuteFrames[0];
     const participantFrame = tenMinuteFrame.participantFrames[`${eligibleMatch.participantId}`];
 
     if (!participantFrame) {
-        return excludeEligibleMatch(eligibleMatch, 'participant_frame_missing');
+        return excludePracticeMatch(eligibleMatch, 'participant_frame_missing');
     }
 
     if (participantFrame.participantId !== eligibleMatch.participantId) {
-        return excludeEligibleMatch(eligibleMatch, 'participant_frame_mismatch');
+        return excludePracticeMatch(eligibleMatch, 'participant_frame_mismatch');
     }
 
     const csAt10 = participantFrame.minionsKilled + participantFrame.jungleMinionsKilled;
@@ -332,7 +333,7 @@ export function calculatePracticeMatchEvidence(
         || !isSafeNonNegativeInteger(totalGoldAt10)
         || !isSafeNonNegativeInteger(deathsAtOrBefore10)
     ) {
-        return excludeEligibleMatch(eligibleMatch, 'metric_value_invalid');
+        return excludePracticeMatch(eligibleMatch, 'metric_value_invalid');
     }
 
     return {

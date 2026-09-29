@@ -2,17 +2,35 @@ import type { Server } from 'node:http';
 
 import { closeDatabase, verifyDatabaseConnection } from './database';
 import { runMigrations } from './migrate';
-import { getOrSyncPlayerReport, type PlayerReportSync } from './playerSync';
+import {
+    calculatePracticeMatchEvidence,
+    evaluatePracticeMatchEligibility,
+    excludePracticeMatch,
+    practiceMetricDefinitions,
+    practiceMetricVersion,
+    practiceQueueId,
+    practiceRole,
+    type PracticeMatchCalculation,
+    type PracticeMetricDefinition,
+} from './practiceMetrics';
+import {
+    getOrSyncMatchTimeline,
+    getOrSyncPlayerReport,
+    type PlayerReportResult,
+    type PlayerReportSync,
+} from './playerSync';
 import { requestRiot, RiotRequestError, RiotResponseError } from './riotClient';
 import {
     isLeagueEntries,
     isMatchData,
+    isMatchTimeline,
     isPlayerReport,
     isRiotAccount,
     isStringArray,
     isSummonerData,
     type LeagueEntry,
     type MatchData,
+    type MatchTimeline,
     type PlayerReport,
     type SummonerData,
 } from './riotSchemas';
@@ -112,7 +130,36 @@ type PlayerReportResponse = {
         source: 'cache' | 'sync';
         fetchedAt: string;
     };
+    practice: PracticeReportResponse;
 };
+
+type SupportedPracticePlatform = 'eun1' | 'euw1';
+
+type PracticeReportResponse = {
+    status: 'ready' | 'unsupported_platform';
+    version: number;
+    generatedAt: string;
+    platform: string;
+    supportedPlatforms: readonly SupportedPracticePlatform[];
+    queueId: number;
+    role: string;
+    metrics: readonly PracticeMetricDefinition[];
+    matches: PracticeMatchCalculation[];
+    consideredMatchCount: number;
+    eligibleMatchCount: number;
+    excludedMatchCount: number;
+};
+
+const supportedPracticePlatforms: readonly SupportedPracticePlatform[] = [
+    'eun1',
+    'euw1',
+];
+
+const isSupportedPracticePlatform = (
+    platform: string
+): platform is SupportedPracticePlatform => (
+    platform === 'eun1' || platform === 'euw1'
+);
 
 type PlayerLocation = {
     PUUID: string;
@@ -284,7 +331,7 @@ async function getPlayerLocation(gameName: string, tagLine: string): Promise<Pla
 async function getRecentMatches(playerLocation: PlayerLocation): Promise<MatchData[]> {
     const { PUUID, regionalRoute } = playerLocation;
     const encodedPUUID = encodeURIComponent(PUUID);
-    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?start=0&count=${recentMatchCount}`;
+    const API_CALL = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/by-puuid/${encodedPUUID}/ids?queue=${practiceQueueId}&start=0&count=${recentMatchCount}`;
     const gameIDsData = await requestRiot(API_CALL);
 
     if (!isStringArray(gameIDsData) || gameIDsData.length > recentMatchCount) {
@@ -351,6 +398,103 @@ async function synchronizePlayerReport(
     };
 }
 
+async function getPracticeTimeline(
+    matchId: string,
+    regionalRoute: string
+): Promise<MatchTimeline | null> {
+    const timelineResult = await getOrSyncMatchTimeline(
+        matchId,
+        regionalRoute,
+        async () => {
+            const timelineApiUrl = `https://${regionalRoute}.api.riotgames.com/lol/match/v5/matches/${encodeURIComponent(matchId)}/timeline`;
+
+            try {
+                const timelineData = await requestRiot(timelineApiUrl);
+
+                if (
+                    !isMatchTimeline(timelineData)
+                    || timelineData.metadata.matchId !== matchId
+                ) {
+                    throw new RiotResponseError();
+                }
+
+                return timelineData;
+            } catch (error: unknown) {
+                if (error instanceof RiotRequestError && error.statusCode === 404) {
+                    return null;
+                }
+
+                throw error;
+            }
+        }
+    );
+
+    return timelineResult?.timeline ?? null;
+}
+
+async function buildPracticeReport(
+    reportResult: PlayerReportResult
+): Promise<PracticeReportResponse> {
+    const commonResponse = {
+        version: practiceMetricVersion,
+        platform: reportResult.platform,
+        supportedPlatforms: supportedPracticePlatforms,
+        queueId: practiceQueueId,
+        role: practiceRole,
+        metrics: practiceMetricDefinitions,
+    };
+
+    if (!isSupportedPracticePlatform(reportResult.platform)) {
+        return {
+            ...commonResponse,
+            status: 'unsupported_platform',
+            generatedAt: new Date().toISOString(),
+            matches: [],
+            consideredMatchCount: 0,
+            eligibleMatchCount: 0,
+            excludedMatchCount: 0,
+        };
+    }
+
+    const matches: PracticeMatchCalculation[] = [];
+
+    for (const matchData of reportResult.report.games) {
+        const eligibility = evaluatePracticeMatchEligibility(
+            matchData,
+            reportResult.report.summoner.puuid
+        );
+
+        if (eligibility.status === 'excluded') {
+            matches.push(eligibility);
+            continue;
+        }
+
+        const timeline = await getPracticeTimeline(
+            eligibility.match.matchId,
+            reportResult.regionalRoute
+        );
+
+        if (!timeline) {
+            matches.push(excludePracticeMatch(eligibility, 'timeline_unavailable'));
+            continue;
+        }
+
+        matches.push(calculatePracticeMatchEvidence(eligibility, timeline));
+    }
+
+    const eligibleMatchCount = matches.filter(match => match.status === 'evidence').length;
+
+    return {
+        ...commonResponse,
+        status: 'ready',
+        generatedAt: new Date().toISOString(),
+        matches,
+        consideredMatchCount: matches.length,
+        eligibleMatchCount,
+        excludedMatchCount: matches.length - eligibleMatchCount,
+    };
+}
+
 app.get('/api/report', withErrorBoundary(async (req, res) => {
     const playerQuery = getPlayerQuery(req);
 
@@ -368,12 +512,15 @@ app.get('/api/report', withErrorBoundary(async (req, res) => {
         return res.status(404).json({ message: 'Player platform could not be found.' });
     }
 
+    const practice = await buildPracticeReport(result);
+
     const response: PlayerReportResponse = {
         report: result.report,
         cache: {
             source: result.source,
             fetchedAt: result.fetchedAt.toISOString(),
         },
+        practice,
     };
 
     res.json(response);
