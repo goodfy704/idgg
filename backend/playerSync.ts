@@ -19,6 +19,8 @@ export type PlayerReportSync = {
 };
 
 export type PlayerReportResult = {
+    platform: string;
+    regionalRoute: string;
     report: PlayerReport;
     source: 'cache' | 'sync';
     fetchedAt: Date;
@@ -58,6 +60,8 @@ const getFreshCachedReport = async (
     }
 
     return {
+        platform: cachedReport.platform,
+        regionalRoute: cachedReport.regionalRoute,
         report: cachedReport.report,
         source: 'cache',
         fetchedAt: cachedReport.fetchedAt,
@@ -136,6 +140,8 @@ const synchronizeWithLease = async (
         });
 
         return {
+            platform: storedReport.platform,
+            regionalRoute: storedReport.regionalRoute,
             report: storedReport.report,
             source: 'sync',
             fetchedAt: storedReport.fetchedAt,
@@ -219,38 +225,158 @@ export async function getOrSyncPlayerReport(
     }
 }
 
+const getStoredMatchTimelineResult = async (
+    matchId: string,
+    regionalRoute: string
+): Promise<MatchTimelineResult | null> => {
+    const cachedTimeline = await getCachedMatchTimeline(matchId, regionalRoute);
+
+    if (!cachedTimeline) {
+        return null;
+    }
+
+    return {
+        timeline: cachedTimeline.timeline,
+        source: 'cache',
+        fetchedAt: cachedTimeline.fetchedAt,
+    };
+};
+
+const synchronizeMatchTimelineWithLease = async (
+    leaseKey: string,
+    ownerId: string,
+    matchId: string,
+    regionalRoute: string,
+    synchronize: SynchronizeMatchTimeline
+): Promise<MatchTimelineResult | null> => {
+    let leaseError: Error | null = null;
+    let activeRenewal: Promise<void> | null = null;
+
+    const renewLease = () => {
+        if (activeRenewal || leaseError) {
+            return;
+        }
+
+        activeRenewal = (async () => {
+            try {
+                const renewed = await renewReportSyncLease(
+                    leaseKey,
+                    ownerId,
+                    syncLeaseDurationMilliseconds
+                );
+
+                if (!renewed) {
+                    leaseError = new Error('Match timeline sync lease was lost.');
+                }
+            } catch (error: unknown) {
+                leaseError = error instanceof Error
+                    ? error
+                    : new Error('Match timeline sync lease renewal failed.');
+            } finally {
+                activeRenewal = null;
+            }
+        })();
+    };
+
+    const renewalTimer = setInterval(renewLease, syncLeaseRenewalMilliseconds);
+
+    try {
+        const synchronizedTimeline = await synchronize();
+
+        if (!synchronizedTimeline) {
+            return null;
+        }
+
+        if (activeRenewal) {
+            await activeRenewal;
+        }
+
+        if (leaseError) {
+            throw leaseError;
+        }
+
+        const renewed = await renewReportSyncLease(
+            leaseKey,
+            ownerId,
+            syncLeaseDurationMilliseconds
+        );
+
+        if (!renewed) {
+            throw new Error('Match timeline sync lease was lost.');
+        }
+
+        const storedTimeline = await saveMatchTimeline({
+            matchId,
+            regionalRoute,
+            timeline: synchronizedTimeline,
+        });
+
+        return {
+            timeline: storedTimeline.timeline,
+            source: 'sync',
+            fetchedAt: storedTimeline.fetchedAt,
+        };
+    } finally {
+        clearInterval(renewalTimer);
+
+        if (activeRenewal) {
+            await activeRenewal;
+        }
+    }
+};
+
 const resolveMatchTimeline = async (
     matchId: string,
     regionalRoute: string,
     synchronize: SynchronizeMatchTimeline
 ): Promise<MatchTimelineResult | null> => {
-    const cachedTimeline = await getCachedMatchTimeline(matchId, regionalRoute);
+    const normalizedRegionalRoute = regionalRoute.trim().toLocaleLowerCase('en-US');
+    const normalizedMatchId = matchId.trim();
+    const leaseKey = `timeline:${normalizedRegionalRoute}:${normalizedMatchId}`;
+    const ownerId = randomUUID();
 
-    if (cachedTimeline) {
-        return {
-            timeline: cachedTimeline.timeline,
-            source: 'cache',
-            fetchedAt: cachedTimeline.fetchedAt,
-        };
+    while (true) {
+        const cachedTimeline = await getStoredMatchTimelineResult(
+            normalizedMatchId,
+            normalizedRegionalRoute
+        );
+
+        if (cachedTimeline) {
+            return cachedTimeline;
+        }
+
+        const acquired = await acquireReportSyncLease(
+            leaseKey,
+            ownerId,
+            syncLeaseDurationMilliseconds
+        );
+
+        if (!acquired) {
+            await delay(syncLeaseRetryMilliseconds);
+            continue;
+        }
+
+        try {
+            const refreshedTimeline = await getStoredMatchTimelineResult(
+                normalizedMatchId,
+                normalizedRegionalRoute
+            );
+
+            if (refreshedTimeline) {
+                return refreshedTimeline;
+            }
+
+            return await synchronizeMatchTimelineWithLease(
+                leaseKey,
+                ownerId,
+                normalizedMatchId,
+                normalizedRegionalRoute,
+                synchronize
+            );
+        } finally {
+            await releaseReportSyncLease(leaseKey, ownerId);
+        }
     }
-
-    const synchronizedTimeline = await synchronize();
-
-    if (!synchronizedTimeline) {
-        return null;
-    }
-
-    const storedTimeline = await saveMatchTimeline({
-        matchId,
-        regionalRoute,
-        timeline: synchronizedTimeline,
-    });
-
-    return {
-        timeline: storedTimeline.timeline,
-        source: 'sync',
-        fetchedAt: storedTimeline.fetchedAt,
-    };
 };
 
 export async function getOrSyncMatchTimeline(
@@ -258,14 +384,25 @@ export async function getOrSyncMatchTimeline(
     regionalRoute: string,
     synchronize: SynchronizeMatchTimeline
 ): Promise<MatchTimelineResult | null> {
-    const syncKey = `${regionalRoute.trim().toLocaleLowerCase('en-US')}:${matchId.trim()}`;
+    const normalizedRegionalRoute = regionalRoute.trim().toLocaleLowerCase('en-US');
+    const normalizedMatchId = matchId.trim();
+
+    if (!normalizedRegionalRoute || !normalizedMatchId) {
+        throw new Error('Match timeline identity is invalid.');
+    }
+
+    const syncKey = `${normalizedRegionalRoute}:${normalizedMatchId}`;
     const activeSync = activeMatchTimelineSyncs.get(syncKey);
 
     if (activeSync) {
         return activeSync;
     }
 
-    const sync = resolveMatchTimeline(matchId, regionalRoute, synchronize);
+    const sync = resolveMatchTimeline(
+        normalizedMatchId,
+        normalizedRegionalRoute,
+        synchronize
+    );
     activeMatchTimelineSyncs.set(syncKey, sync);
 
     try {

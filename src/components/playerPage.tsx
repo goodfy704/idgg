@@ -13,6 +13,8 @@ import NotFoundPage from './NotFoundPage';
 import SummonerMatchStats from './MatchHistory/summonerMatchStats';
 import LastGamesStatistics from './PlayerRank/lastGamesStatistics';
 import type { RecentGameStatistics } from './PlayerRank/lastGamesStatistics';
+import PracticeReview from './PracticeReview/practiceReview';
+import { isPracticeReport, type PracticeReport } from './PracticeReview/practiceTypes';
 
 type RuneStyle = {
     style: number;
@@ -77,7 +79,14 @@ type PlayerReportResponse = {
         source: 'cache' | 'sync';
         fetchedAt: string;
     };
+    practice: PracticeReport;
 };
+
+type PlayerLoadFailureReason =
+    | 'rate_limited'
+    | 'service_unavailable'
+    | 'invalid_response'
+    | 'asset_data_unavailable';
 
 type ChampionTotals = {
     gamesPlayed: number;
@@ -188,6 +197,7 @@ const isPlayerReportResponse = (value: unknown): value is PlayerReportResponse =
     && isRecord(value.cache)
     && (value.cache.source === 'cache' || value.cache.source === 'sync')
     && isIsoTimestamp(value.cache.fetchedAt)
+    && isPracticeReport(value.practice)
 );
 
 const getLatestDataDragonVersion = (value: unknown): string | null => {
@@ -312,6 +322,7 @@ function PlayerPage() {
     const [summoner, setSummoner] = useState<Summoner | null>(null);
     const [league, setLeague] = useState<(LeagueEntry | null)[]>([]);
     const [dataDragonVersion, setDataDragonVersion] = useState<string | null>(null);
+    const [practiceReport, setPracticeReport] = useState<PracticeReport | null>(null);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
     const { gameName, tagLine } = useParams<{
@@ -330,10 +341,25 @@ function PlayerPage() {
 
         const controller = new AbortController();
         let active = true;
+        const retryPath = `/player/${encodeURIComponent(playerName)}/${encodeURIComponent(playerTagLine)}`;
+        const navigateToUnavailable = (reason: PlayerLoadFailureReason) => {
+            navigate('/tooManyRequests', {
+                replace: true,
+                state: {
+                    reason,
+                    retryPath,
+                },
+            });
+        };
 
         const fetchData = async () => {
             try {
                 setLoading(true);
+                setSummoner(null);
+                setGameList([]);
+                setLeague([]);
+                setDataDragonVersion(null);
+                setPracticeReport(null);
                 const requestConfig = {
                     params: {
                         gameName: playerName,
@@ -356,8 +382,13 @@ function PlayerPage() {
                     dataDragonVersionsResponse.data
                 );
 
-                if (!isPlayerReportResponse(reportResponse.data) || !latestDataDragonVersion) {
-                    navigate('/tooManyRequests');
+                if (!isPlayerReportResponse(reportResponse.data)) {
+                    navigateToUnavailable('invalid_response');
+                    return;
+                }
+
+                if (!latestDataDragonVersion) {
+                    navigateToUnavailable('asset_data_unavailable');
                     return;
                 }
 
@@ -366,16 +397,31 @@ function PlayerPage() {
                 setGameList(report.games);
                 setLeague(arrangeLeagueEntries(report.league));
                 setDataDragonVersion(latestDataDragonVersion);
+                setPracticeReport(reportResponse.data.practice);
             } catch (error: unknown) {
                 if (axios.isAxiosError(error) && error.code === 'ERR_CANCELED') {
                     return;
                 }
 
-                if (axios.isAxiosError(error) && error.response?.status === 404) {
-                    navigate('/notFound');
-                } else {
-                    navigate('/tooManyRequests');
+                if (!active) {
+                    return;
                 }
+
+                if (axios.isAxiosError(error)) {
+                    if (error.config?.url === dataDragonVersionsUrl) {
+                        navigateToUnavailable('asset_data_unavailable');
+                    } else if (error.response?.status === 404) {
+                        navigate('/notFound', { replace: true });
+                    } else if (error.response?.status === 429) {
+                        navigateToUnavailable('rate_limited');
+                    } else {
+                        navigateToUnavailable('service_unavailable');
+                    }
+
+                    return;
+                }
+
+                navigateToUnavailable('service_unavailable');
             } finally {
                 if (active) {
                     setLoading(false);
@@ -393,13 +439,20 @@ function PlayerPage() {
 
     if (loading) {
         return (
-            <div className="text-white w-screen text-center h-screen content-center text-4xl">
-                <p>Loading...</p>
+            <div
+                role="status"
+                aria-live="polite"
+                className="text-white w-screen text-center h-screen content-center px-4"
+            >
+                <p className="text-4xl">Building the player report...</p>
+                <p className="mt-3 text-base text-gray-light">
+                    A fresh report may take longer while match timelines are synchronized.
+                </p>
             </div>
         );
     }
 
-    if (!summoner || !dataDragonVersion) {
+    if (!summoner || !dataDragonVersion || !practiceReport) {
         return <NotFoundPage />;
     }
 
@@ -417,6 +470,9 @@ function PlayerPage() {
                 </div>
             </div>
             <div className="w-full max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                <div className="min-w-0 xl:col-span-2">
+                    <PracticeReview practice={practiceReport} playerPUUID={summoner.puuid} />
+                </div>
                 <div className="min-w-0 rounded-xl grid grid-cols-1 lg:grid-cols-5 bg-black-russian/35 border-2 border-dark-silver transition ease-in-out delay-150 drop-shadow-plume hover:drop-shadow-goldish overflow-hidden">
                     <div className="min-w-0 lg:col-span-3">
                         <RankedSolo league={league} />
