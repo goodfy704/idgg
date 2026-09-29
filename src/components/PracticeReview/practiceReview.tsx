@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+
+import { loadPracticeFocus, savePracticeFocus } from './practiceFocusStorage';
 import type {
     PracticeEvidenceMatch,
     PracticeExcludedMatch,
@@ -6,10 +9,12 @@ import type {
     PracticeMetricAggregation,
     PracticeMetricKey,
     PracticeReport,
+    SavedPracticeFocus,
 } from './practiceTypes';
 
 type PracticeReviewProps = {
     practice: PracticeReport;
+    playerPUUID: string;
 };
 
 type MetricPresentation = {
@@ -118,7 +123,85 @@ const getSampleLabel = (sampleSize: number): string => (
     `${sampleSize} comparable ${sampleSize === 1 ? 'match' : 'matches'}`
 );
 
-function PracticeReview({ practice }: PracticeReviewProps) {
+function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
+    const evidenceMatches = practice.matches.filter(isEvidenceMatch);
+    const excludedMatches = practice.matches.filter(isExcludedMatch);
+    const [selectedMetricKey, setSelectedMetricKey] = useState<PracticeMetricKey | null>(null);
+    const [savedFocus, setSavedFocus] = useState<SavedPracticeFocus | null>(null);
+    const [focusLoadedForPUUID, setFocusLoadedForPUUID] = useState<string | null>(null);
+    const [storageError, setStorageError] = useState<string | null>(null);
+    const [saveConfirmation, setSaveConfirmation] = useState<string | null>(null);
+
+    useEffect(() => {
+        setFocusLoadedForPUUID(null);
+        setSaveConfirmation(null);
+
+        const result = loadPracticeFocus(playerPUUID);
+
+        if (result.status === 'loaded') {
+            setSavedFocus(result.focus);
+            setSelectedMetricKey(result.focus.metricKey);
+            setStorageError(null);
+        } else if (result.status === 'empty') {
+            setSavedFocus(null);
+            setSelectedMetricKey(null);
+            setStorageError(null);
+        } else if (result.status === 'invalid') {
+            setSavedFocus(null);
+            setSelectedMetricKey(null);
+            setStorageError('The saved focus for this player is invalid. Saving a new focus will replace it.');
+        } else {
+            setSavedFocus(null);
+            setSelectedMetricKey(null);
+            setStorageError('Browser storage is unavailable. Your focus cannot be loaded or saved.');
+        }
+
+        setFocusLoadedForPUUID(playerPUUID);
+    }, [playerPUUID]);
+
+    const focusIsLoading = focusLoadedForPUUID !== playerPUUID;
+    const selectedMetricDefinition = selectedMetricKey === null
+        ? null
+        : practice.metrics.find(metric => metric.key === selectedMetricKey) ?? null;
+    const savedMetricDefinition = savedFocus === null
+        ? null
+        : practice.metrics.find(metric => metric.key === savedFocus.metricKey) ?? null;
+    const savedAggregate = savedFocus && savedMetricDefinition
+        ? calculateAggregate(
+            savedFocus.baselineMatches.map(match => match.metricValue),
+            savedMetricDefinition.aggregation
+        )
+        : null;
+
+    const handleSaveFocus = () => {
+        if (!selectedMetricDefinition || evidenceMatches.length === 0 || focusIsLoading) {
+            return;
+        }
+
+        const result = savePracticeFocus({
+            ownerPUUID: playerPUUID,
+            metricVersion: practice.version,
+            metricKey: selectedMetricDefinition.key,
+            evidence: evidenceMatches.map(match => match.evidence),
+        });
+
+        if (result.status === 'saved') {
+            setSavedFocus(result.focus);
+            setStorageError(null);
+            setSaveConfirmation(
+                `Focus and ${getSampleLabel(result.focus.baselineMatches.length)} saved in this browser.`
+            );
+            return;
+        }
+
+        setSaveConfirmation(null);
+        setStorageError(
+            result.status === 'unavailable'
+                ? 'Browser storage is unavailable. Your focus could not be saved.'
+                : 'The current focus or baseline data is invalid and was not saved.'
+        );
+    };
+
     if (practice.status === 'unsupported_platform') {
         return (
             <section className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume">
@@ -129,9 +212,6 @@ function PracticeReview({ practice }: PracticeReviewProps) {
             </section>
         );
     }
-
-    const evidenceMatches = practice.matches.filter(isEvidenceMatch);
-    const excludedMatches = practice.matches.filter(isExcludedMatch);
 
     return (
         <section className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume hover:drop-shadow-goldish transition ease-in-out delay-150">
@@ -149,6 +229,40 @@ function PracticeReview({ practice }: PracticeReviewProps) {
                 </div>
             </div>
 
+            {focusIsLoading ? (
+                <p className="mt-6 text-gray-light">Loading saved focus...</p>
+            ) : savedFocus && savedMetricDefinition ? (
+                <div className="mt-6 rounded-lg border border-purple bg-purple/10 p-5">
+                    <p className="text-sm uppercase tracking-widest text-gray-light">Saved focus</p>
+                    <div className="mt-1 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h3 className="text-xl">{metricPresentation[savedFocus.metricKey].title}</h3>
+                            <p className="mt-2 text-gray-light">
+                                {getAggregateLabel(savedMetricDefinition.aggregation)} baseline: {savedAggregate === null ? 'Unavailable' : metricNumberFormatter.format(savedAggregate)} from {getSampleLabel(savedFocus.baselineMatches.length)}.
+                            </p>
+                        </div>
+                        <p className="text-sm text-gray-light">
+                            Saved {gameDateFormatter.format(new Date(savedFocus.savedAt))}
+                        </p>
+                    </div>
+                    <p className="mt-3 text-sm text-gray-light">
+                        The baseline is fixed by match ID and game start time. Saving again replaces it with the current comparable sample.
+                    </p>
+                </div>
+            ) : null}
+
+            {storageError && (
+                <p role="alert" className="mt-4 rounded-lg border border-red bg-red/10 p-4 text-gray-light">
+                    {storageError}
+                </p>
+            )}
+
+            {saveConfirmation && (
+                <p role="status" className="mt-4 rounded-lg border border-green bg-green/10 p-4 text-gray-light">
+                    {saveConfirmation}
+                </p>
+            )}
+
             {evidenceMatches.length === 0 ? (
                 <div className="mt-6 rounded-lg border border-dark-silver bg-dark-plume/45 p-5">
                     <h3 className="text-lg">Not enough comparable data yet</h3>
@@ -158,31 +272,68 @@ function PracticeReview({ practice }: PracticeReviewProps) {
                 </div>
             ) : (
                 <>
-                    <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-                        {practice.metrics.map(metric => {
-                            const values = evidenceMatches.map(
-                                match => match.evidence.metrics[metric.key].value
-                            );
-                            const aggregate = calculateAggregate(values, metric.aggregation);
-                            const presentation = metricPresentation[metric.key];
+                    <fieldset className="mt-6">
+                        <legend className="text-xl">Choose one practice focus</legend>
+                        <p className="mt-1 text-sm text-gray-light">
+                            Saving a focus captures the current comparable matches as its fixed baseline.
+                        </p>
+                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                            {practice.metrics.map(metric => {
+                                const values = evidenceMatches.map(
+                                    match => match.evidence.metrics[metric.key].value
+                                );
+                                const aggregate = calculateAggregate(values, metric.aggregation);
+                                const presentation = metricPresentation[metric.key];
+                                const selected = selectedMetricKey === metric.key;
 
-                            return (
-                                <article
-                                    key={metric.key}
-                                    className="rounded-lg border border-dark-silver bg-dark-plume/45 p-5"
-                                >
-                                    <p className="text-sm text-gray-light">{getAggregateLabel(metric.aggregation)}</p>
-                                    <h3 className="mt-1 text-lg">{presentation.title}</h3>
-                                    <p className="mt-3 text-3xl">
-                                        {aggregate === null ? 'Unavailable' : metricNumberFormatter.format(aggregate)}
-                                    </p>
-                                    <p className="mt-2 text-sm text-gray-light">
-                                        {getSampleLabel(values.length)}
-                                    </p>
-                                </article>
-                            );
-                        })}
-                    </div>
+                                return (
+                                    <label
+                                        key={metric.key}
+                                        className={`cursor-pointer rounded-lg border bg-dark-plume/45 p-5 transition ${selected ? 'border-purple ring-2 ring-purple/40' : 'border-dark-silver'}`}
+                                    >
+                                        <span className="flex items-start justify-between gap-3">
+                                            <span>
+                                                <span className="block text-sm text-gray-light">
+                                                    {getAggregateLabel(metric.aggregation)}
+                                                </span>
+                                                <span className="mt-1 block text-lg">{presentation.title}</span>
+                                            </span>
+                                            <input
+                                                type="radio"
+                                                name="practice-focus"
+                                                value={metric.key}
+                                                checked={selected}
+                                                onChange={() => {
+                                                    setSelectedMetricKey(metric.key);
+                                                    setSaveConfirmation(null);
+                                                }}
+                                                className="mt-1 h-5 w-5 accent-purple"
+                                            />
+                                        </span>
+                                        <span className="mt-3 block text-3xl">
+                                            {aggregate === null ? 'Unavailable' : metricNumberFormatter.format(aggregate)}
+                                        </span>
+                                        <span className="mt-2 block text-sm text-gray-light">
+                                            {getSampleLabel(values.length)}
+                                        </span>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <button
+                                type="button"
+                                onClick={handleSaveFocus}
+                                disabled={selectedMetricKey === null || focusIsLoading}
+                                className="rounded-lg bg-purple px-5 py-3 font-semibold text-white transition hover:bg-purple/80 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {savedFocus ? 'Replace saved focus and baseline' : 'Save focus and baseline'}
+                            </button>
+                            {selectedMetricKey === null && (
+                                <p className="text-sm text-gray-light">Select one metric before saving.</p>
+                            )}
+                        </div>
+                    </fieldset>
 
                     <div className="mt-8">
                         <h3 className="text-xl">Match evidence</h3>

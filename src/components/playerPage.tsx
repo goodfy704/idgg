@@ -424,7 +424,7 @@ function PlayerPage() {
             </div>
             <div className="w-full max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
                 <div className="min-w-0 xl:col-span-2">
-                    <PracticeReview practice={practiceReport} />
+                    <PracticeReview practice={practiceReport} playerPUUID={summoner.puuid} />
                 </div>
                 <div className="min-w-0 rounded-xl grid grid-cols-1 lg:grid-cols-5 bg-black-russian/35 border-2 border-dark-silver transition ease-in-out delay-150 drop-shadow-plume hover:drop-shadow-goldish overflow-hidden">
                     <div className="min-w-0 lg:col-span-3">

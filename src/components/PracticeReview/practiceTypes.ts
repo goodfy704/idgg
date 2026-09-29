@@ -80,6 +80,26 @@ export type PracticeExcludedMatch = {
 
 export type PracticeMatchCalculation = PracticeEvidenceMatch | PracticeExcludedMatch;
 
+export type PracticeBaselineMatch = {
+    matchId: string;
+    gameStartTimestamp: number;
+    queueId: number;
+    role: string;
+    championName: string;
+    patch: string;
+    metricValue: number;
+    observedAtMilliseconds: number;
+};
+
+export type SavedPracticeFocus = {
+    storageVersion: number;
+    metricVersion: number;
+    ownerPUUID: string;
+    metricKey: PracticeMetricKey;
+    savedAt: string;
+    baselineMatches: PracticeBaselineMatch[];
+};
+
 export type PracticeReport = {
     status: 'ready' | 'unsupported_platform';
     version: number;
@@ -134,6 +154,12 @@ const isNullableQueueId = (value: unknown): value is number | null => (
 
 const isSupportedPracticePlatform = (value: unknown): value is SupportedPracticePlatform => (
     value === 'eun1' || value === 'euw1'
+);
+
+export const isPracticeMetricKey = (value: unknown): value is PracticeMetricKey => (
+    value === 'csAt10'
+    || value === 'deathsAtOrBefore10'
+    || value === 'totalGoldAt10'
 );
 
 const isPracticeMetricDefinition = (value: unknown): value is PracticeMetricDefinition => {
