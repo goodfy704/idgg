@@ -100,6 +100,33 @@ export type SavedPracticeFocus = {
     baselineMatches: PracticeBaselineMatch[];
 };
 
+export type PracticeComparisonSample = {
+    matches: PracticeBaselineMatch[];
+    aggregate: number | null;
+};
+
+export type PracticeComparisonSeparationReason =
+    | 'not_in_baseline_before_focus'
+    | 'game_time_unavailable'
+    | 'baseline_identity_mismatch';
+
+export type PracticeComparisonSeparationExclusion = {
+    match: PracticeMatchReference;
+    reason: PracticeComparisonSeparationReason;
+};
+
+export type PracticeComparison = {
+    metricKey: PracticeMetricKey;
+    aggregation: PracticeMetricAggregation;
+    savedAt: string;
+    baseline: PracticeComparisonSample;
+    followUp: PracticeComparisonSample;
+    difference: number | null;
+    currentBaselineMatchCount: number;
+    excludedFollowUpMatches: PracticeExcludedMatch[];
+    separationExclusions: PracticeComparisonSeparationExclusion[];
+};
+
 export type PracticeReport = {
     status: 'ready' | 'unsupported_platform';
     version: number;
@@ -296,11 +323,15 @@ export const isPracticeReport = (value: unknown): value is PracticeReport => {
     }
 
     const metricKeys = value.metrics.map(metric => metric.key);
+    const matchIds = value.matches.map(match => (
+        match.status === 'evidence' ? match.evidence.matchId : match.match.matchId
+    ));
     const eligibleMatchCount = value.matches.filter(match => match.status === 'evidence').length;
     const excludedMatchCount = value.matches.length - eligibleMatchCount;
 
     if (
         new Set(metricKeys).size !== value.metrics.length
+        || new Set(matchIds).size !== matchIds.length
         || value.consideredMatchCount !== value.matches.length
         || value.eligibleMatchCount !== eligibleMatchCount
         || value.excludedMatchCount !== excludedMatchCount

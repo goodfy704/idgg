@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
 
+import {
+    buildPracticeComparison,
+    calculatePracticeAggregate,
+} from './practiceComparison';
 import { loadPracticeFocus, savePracticeFocus } from './practiceFocusStorage';
 import type {
+    PracticeBaselineMatch,
     PracticeEvidenceMatch,
     PracticeExcludedMatch,
+    PracticeComparisonSeparationReason,
     PracticeMatchCalculation,
     PracticeMatchExclusionReason,
     PracticeMetricAggregation,
@@ -62,6 +68,12 @@ const exclusionMessages: Record<PracticeMatchExclusionReason, string> = {
     metric_value_invalid: 'One or more metric values were invalid.',
 };
 
+const separationMessages: Record<PracticeComparisonSeparationReason, string> = {
+    not_in_baseline_before_focus: 'The match started before the focus was saved but was not part of its baseline.',
+    game_time_unavailable: 'The match could not be placed before or after the focus because its game time was unavailable.',
+    baseline_identity_mismatch: 'The match ID matched the baseline, but its game time did not.',
+};
+
 const metricNumberFormatter = new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 1,
 });
@@ -80,28 +92,6 @@ const isEvidenceMatch = (
 const isExcludedMatch = (
     match: PracticeMatchCalculation
 ): match is PracticeExcludedMatch => match.status === 'excluded';
-
-const calculateAggregate = (
-    values: number[],
-    aggregation: PracticeMetricAggregation
-): number | null => {
-    if (values.length === 0) {
-        return null;
-    }
-
-    if (aggregation === 'mean') {
-        return values.reduce((total, value) => total + value, 0) / values.length;
-    }
-
-    const sortedValues = [...values].sort((left, right) => left - right);
-    const middleIndex = Math.floor(sortedValues.length / 2);
-
-    if (sortedValues.length % 2 === 1) {
-        return sortedValues[middleIndex];
-    }
-
-    return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
-};
 
 const getAggregateLabel = (aggregation: PracticeMetricAggregation): string => (
     aggregation === 'median' ? 'Median' : 'Average'
@@ -122,6 +112,56 @@ const getQueueLabel = (queueId: number | null): string => {
 const getSampleLabel = (sampleSize: number): string => (
     `${sampleSize} comparable ${sampleSize === 1 ? 'match' : 'matches'}`
 );
+
+const getDifferenceLabel = (difference: number | null): string => {
+    if (difference === null) {
+        return 'Waiting for a follow-up sample';
+    }
+
+    if (difference === 0) {
+        return 'No difference from baseline';
+    }
+
+    const direction = difference > 0 ? 'higher' : 'lower';
+    return `${metricNumberFormatter.format(Math.abs(difference))} ${direction} than baseline`;
+};
+
+type FocusEvidenceCardProps = {
+    match: PracticeBaselineMatch;
+    metricKey: PracticeMetricKey;
+    sampleLabel: 'Baseline' | 'Follow-up';
+};
+
+function FocusEvidenceCard({ match, metricKey, sampleLabel }: FocusEvidenceCardProps) {
+    return (
+        <article className="min-w-0 rounded-lg border border-dark-silver bg-black-russian/60 p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <p className="text-xs uppercase tracking-widest text-gray-light">{sampleLabel}</p>
+                    <h5 className="mt-1 text-lg">{match.championName}</h5>
+                    <p className="text-sm text-gray-light">{getGameDate(match.gameStartTimestamp)}</p>
+                </div>
+                <p className="text-sm text-gray-light">Patch {match.patch}</p>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                <span className="rounded-full border border-dark-silver px-3 py-1">
+                    {getQueueLabel(match.queueId)}
+                </span>
+                <span className="rounded-full border border-dark-silver px-3 py-1">
+                    Role {match.role}
+                </span>
+                <span className="rounded-full border border-dark-silver px-3 py-1">
+                    Timeline {match.observedAtMilliseconds / 60000}:00
+                </span>
+            </div>
+            <dl className="mt-4 rounded-lg bg-dark-plume/70 p-3">
+                <dt className="text-sm text-gray-light">{metricPresentation[metricKey].title}</dt>
+                <dd className="mt-1 text-2xl">{wholeNumberFormatter.format(match.metricValue)}</dd>
+            </dl>
+            <p className="mt-3 break-all text-xs text-gray-light">Match {match.matchId}</p>
+        </article>
+    );
+}
 
 function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
     const evidenceMatches = practice.matches.filter(isEvidenceMatch);
@@ -166,9 +206,10 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
     const savedMetricDefinition = savedFocus === null
         ? null
         : practice.metrics.find(metric => metric.key === savedFocus.metricKey) ?? null;
-    const savedAggregate = savedFocus && savedMetricDefinition
-        ? calculateAggregate(
-            savedFocus.baselineMatches.map(match => match.metricValue),
+    const comparison = savedFocus && savedMetricDefinition
+        ? buildPracticeComparison(
+            savedFocus,
+            practice.matches,
             savedMetricDefinition.aggregation
         )
         : null;
@@ -231,23 +272,129 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
 
             {focusIsLoading ? (
                 <p className="mt-6 text-gray-light">Loading saved focus...</p>
-            ) : savedFocus && savedMetricDefinition ? (
+            ) : savedFocus && savedMetricDefinition && comparison ? (
                 <div className="mt-6 rounded-lg border border-purple bg-purple/10 p-5">
                     <p className="text-sm uppercase tracking-widest text-gray-light">Saved focus</p>
                     <div className="mt-1 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                         <div>
                             <h3 className="text-xl">{metricPresentation[savedFocus.metricKey].title}</h3>
                             <p className="mt-2 text-gray-light">
-                                {getAggregateLabel(savedMetricDefinition.aggregation)} baseline: {savedAggregate === null ? 'Unavailable' : metricNumberFormatter.format(savedAggregate)} from {getSampleLabel(savedFocus.baselineMatches.length)}.
+                                Matches are compared only with this player&apos;s saved {getAggregateLabel(savedMetricDefinition.aggregation).toLowerCase()} baseline.
                             </p>
                         </div>
                         <p className="text-sm text-gray-light">
                             Saved {gameDateFormatter.format(new Date(savedFocus.savedAt))}
                         </p>
                     </div>
+                    <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div className="rounded-lg bg-black-russian/60 p-4">
+                            <p className="text-sm text-gray-light">Baseline</p>
+                            <p className="mt-1 text-3xl">
+                                {comparison.baseline.aggregate === null
+                                    ? 'Unavailable'
+                                    : metricNumberFormatter.format(comparison.baseline.aggregate)}
+                            </p>
+                            <p className="mt-2 text-sm text-gray-light">
+                                {getSampleLabel(comparison.baseline.matches.length)}
+                            </p>
+                        </div>
+                        <div className="rounded-lg bg-black-russian/60 p-4">
+                            <p className="text-sm text-gray-light">Follow-up</p>
+                            <p className="mt-1 text-3xl">
+                                {comparison.followUp.aggregate === null
+                                    ? 'Waiting'
+                                    : metricNumberFormatter.format(comparison.followUp.aggregate)}
+                            </p>
+                            <p className="mt-2 text-sm text-gray-light">
+                                {getSampleLabel(comparison.followUp.matches.length)}
+                            </p>
+                        </div>
+                        <div className="rounded-lg bg-black-russian/60 p-4">
+                            <p className="text-sm text-gray-light">Observed difference</p>
+                            <p className="mt-1 text-xl">{getDifferenceLabel(comparison.difference)}</p>
+                            <p className="mt-2 text-sm text-gray-light">
+                                This is a comparison, not an explanation of match results.
+                            </p>
+                        </div>
+                    </div>
                     <p className="mt-3 text-sm text-gray-light">
-                        The baseline is fixed by match ID and game start time. Saving again replaces it with the current comparable sample.
+                        {comparison.currentBaselineMatchCount} saved baseline {comparison.currentBaselineMatchCount === 1 ? 'match is' : 'matches are'} still in the current report and not counted again. Only different match IDs with game starts after the saved time can enter follow-up.
                     </p>
+                    {comparison.followUp.matches.length === 0 && (
+                        <p className="mt-4 rounded-lg border border-dark-silver bg-dark-plume/45 p-4 text-gray-light">
+                            No comparable post-focus matches yet. Return after playing a newer ranked-solo BOTTOM match.
+                        </p>
+                    )}
+                    <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+                        <div>
+                            <h4 className="text-lg">Baseline evidence</h4>
+                            <p className="mt-1 text-sm text-gray-light">
+                                Fixed when the focus was saved.
+                            </p>
+                            <div className="mt-3 space-y-3">
+                                {comparison.baseline.matches.map(match => (
+                                    <FocusEvidenceCard
+                                        key={match.matchId}
+                                        match={match}
+                                        metricKey={comparison.metricKey}
+                                        sampleLabel="Baseline"
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 className="text-lg">Follow-up evidence</h4>
+                            <p className="mt-1 text-sm text-gray-light">
+                                Comparable matches that started after the focus was saved.
+                            </p>
+                            {comparison.followUp.matches.length > 0 ? (
+                                <div className="mt-3 space-y-3">
+                                    {comparison.followUp.matches.map(match => (
+                                        <FocusEvidenceCard
+                                            key={match.matchId}
+                                            match={match}
+                                            metricKey={comparison.metricKey}
+                                            sampleLabel="Follow-up"
+                                        />
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="mt-3 rounded-lg bg-black-russian/60 p-4 text-gray-light">
+                                    Follow-up evidence will appear here when a comparable newer match is available.
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    {(comparison.excludedFollowUpMatches.length > 0
+                        || comparison.separationExclusions.length > 0) && (
+                        <details className="mt-6 rounded-lg border border-dark-silver bg-dark-plume/45 p-4">
+                            <summary className="cursor-pointer text-lg">
+                                Comparison exclusions ({comparison.excludedFollowUpMatches.length + comparison.separationExclusions.length})
+                            </summary>
+                            <div className="mt-4 space-y-4">
+                                {comparison.excludedFollowUpMatches.map(match => (
+                                    <article key={match.match.matchId} className="rounded-lg bg-black-russian/60 p-4">
+                                        <p>{match.match.championName ?? 'Champion unavailable'} / {getGameDate(match.match.gameStartTimestamp)}</p>
+                                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-light">
+                                            {match.reasons.map(reason => (
+                                                <li key={reason}>{exclusionMessages[reason]}</li>
+                                            ))}
+                                        </ul>
+                                        <p className="mt-2 break-all text-xs text-gray-light">Match {match.match.matchId}</p>
+                                    </article>
+                                ))}
+                                {comparison.separationExclusions.map(exclusion => (
+                                    <article key={exclusion.match.matchId} className="rounded-lg bg-black-russian/60 p-4">
+                                        <p>{exclusion.match.championName ?? 'Champion unavailable'} / {getGameDate(exclusion.match.gameStartTimestamp)}</p>
+                                        <p className="mt-2 text-sm text-gray-light">
+                                            {separationMessages[exclusion.reason]}
+                                        </p>
+                                        <p className="mt-2 break-all text-xs text-gray-light">Match {exclusion.match.matchId}</p>
+                                    </article>
+                                ))}
+                            </div>
+                        </details>
+                    )}
                 </div>
             ) : null}
 
@@ -282,7 +429,7 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                                 const values = evidenceMatches.map(
                                     match => match.evidence.metrics[metric.key].value
                                 );
-                                const aggregate = calculateAggregate(values, metric.aggregation);
+                                const aggregate = calculatePracticeAggregate(values, metric.aggregation);
                                 const presentation = metricPresentation[metric.key];
                                 const selected = selectedMetricKey === metric.key;
 
@@ -336,7 +483,7 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                     </fieldset>
 
                     <div className="mt-8">
-                        <h3 className="text-xl">Match evidence</h3>
+                        <h3 className="text-xl">Current report evidence</h3>
                         <p className="mt-1 text-sm text-gray-light">
                             Every value below comes from that match&apos;s exact 10-minute timeline frame.
                         </p>
