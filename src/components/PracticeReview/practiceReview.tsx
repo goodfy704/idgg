@@ -286,8 +286,11 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
 
     if (practice.status === 'unsupported_platform') {
         return (
-            <section className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume">
-                <h2 className="text-2xl">Practice review</h2>
+            <section
+                aria-labelledby="practice-review-heading"
+                className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume"
+            >
+                <h2 id="practice-review-heading" className="text-2xl">Practice review</h2>
                 <p className="mt-2 text-gray-light">
                     Practice review currently supports EUW and EUNE accounts. This account resolved to {practice.platform.toUpperCase()}.
                 </p>
@@ -296,11 +299,14 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
     }
 
     return (
-        <section className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume hover:drop-shadow-goldish transition ease-in-out delay-150">
+        <section
+            aria-labelledby="practice-review-heading"
+            className="rounded-xl border-2 border-dark-silver bg-black-russian/35 p-6 drop-shadow-plume hover:drop-shadow-goldish transition ease-in-out delay-150"
+        >
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <p className="text-sm uppercase tracking-widest text-gray-light">Ranked solo · BOTTOM</p>
-                    <h2 className="text-2xl">Practice review</h2>
+                    <h2 id="practice-review-heading" className="text-2xl">Practice review</h2>
                     <p className="mt-2 max-w-3xl text-gray-light">
                         These values compare only this player&apos;s recent comparable matches. They describe the sample and do not explain wins or losses.
                     </p>
@@ -311,8 +317,25 @@ function PracticeReview({ practice, playerPUUID }: PracticeReviewProps) {
                 </div>
             </div>
 
+            <ol className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <li className="rounded-lg border border-dark-silver bg-dark-plume/45 p-4">
+                    <p className="text-sm uppercase tracking-widest text-gray-light">1. Choose</p>
+                    <p className="mt-1">Select one metric and save the current comparable sample.</p>
+                </li>
+                <li className="rounded-lg border border-dark-silver bg-dark-plume/45 p-4">
+                    <p className="text-sm uppercase tracking-widest text-gray-light">2. Practice</p>
+                    <p className="mt-1">Play newer ranked-solo BOTTOM matches with that focus.</p>
+                </li>
+                <li className="rounded-lg border border-dark-silver bg-dark-plume/45 p-4">
+                    <p className="text-sm uppercase tracking-widest text-gray-light">3. Compare</p>
+                    <p className="mt-1">Return to compare the saved baseline with eligible newer matches.</p>
+                </li>
+            </ol>
+
             {focusIsLoading ? (
-                <p className="mt-6 text-gray-light">Loading saved focus...</p>
+                <p role="status" aria-live="polite" className="mt-6 text-gray-light">
+                    Loading saved focus...
+                </p>
             ) : savedFocus && savedMetricDefinition && comparison ? (
                 <div className="mt-6 rounded-lg border border-purple bg-purple/10 p-5">
                     <p className="text-sm uppercase tracking-widest text-gray-light">Saved focus</p>
