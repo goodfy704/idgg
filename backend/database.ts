@@ -1,14 +1,9 @@
-import 'dotenv/config';
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 
-const databaseUrl = process.env.DATABASE_URL?.trim();
-
-if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is required.');
-}
+import { getDatabaseConfig } from './config';
 
 const databasePool = new Pool({
-    connectionString: databaseUrl,
+    connectionString: getDatabaseConfig().connectionString,
 });
 
 let closeDatabasePromise: Promise<void> | null = null;

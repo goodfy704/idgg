@@ -33,7 +33,9 @@ RIOT_API_KEY=your-riot-api-key
 
 Keep database credentials and the Riot API key only in this server-side environment file. Environment files are ignored by Git and must not be committed, placed in frontend source, or included in browser URLs.
 
-The backend stops during startup when either required value is missing or empty. It verifies the PostgreSQL connection before listening for requests.
+The backend stops during startup when either required value is missing, empty, or invalid. It verifies the PostgreSQL connection before listening for requests. Local development defaults to port 4000, origin `http://localhost:3000`, and EUW/EUNE platform discovery.
+
+The complete typed environment contract, including staging and production requirements and variables reserved for later operational tasks, is documented in [the environment contract](docs/operations/environment.md). Staging and production require an explicit HTTPS `PUBLIC_ORIGIN`, `TRUST_PROXY_HOPS`, and `RELEASE_VERSION`. Secrets must never use a `VITE_` prefix.
 
 Apply pending database migrations from the repository root:
 
@@ -42,6 +44,8 @@ npm --prefix backend run migrate
 ```
 
 Non-empty migrations run in filename order and are recorded in the database. Empty placeholder files are ignored until they contain SQL, and applied migration files must not be changed. The backend also applies pending migrations during startup and does not listen if migration fails.
+
+Development migrations use `MIGRATION_DATABASE_URL` when supplied and otherwise retain the existing `DATABASE_URL` fallback. Staging and production migrations require a separate `MIGRATION_DATABASE_URL`; its value must be provided only through the hosting environment. Because the current backend still applies migrations during startup, the staging and production web process temporarily requires this value until a later least-privilege task moves migration execution into a release job.
 
 ## Local development
 
@@ -120,6 +124,10 @@ A complete baseline requires the clean installation commands, all TypeScript and
 ## Deployment note
 
 The Vite `/api` proxy is for local development. A deployed frontend must use its hosting or reverse-proxy configuration to send same-origin `/api` requests to the Express backend over HTTPS. The Riot API key must remain available only to the backend process.
+
+The backend exposes `GET /health` for process liveness and `GET /ready` for traffic readiness. Liveness does not depend on Riot or PostgreSQL. Readiness returns HTTP 200 only after startup checks and migrations complete and while PostgreSQL is reachable; it returns HTTP 503 after shutdown begins or when the database check fails. Both responses disable caching and contain only a status value.
+
+`SIGINT` and `SIGTERM` make readiness fail immediately, stop new HTTP connections, drain active connections, and close PostgreSQL. `SHUTDOWN_GRACE_MS` bounds the drain before the process terminates with an error. Unknown routes and unexpected failures return stable JSON without exception details, credentials, or upstream response bodies.
 
 ## Production readiness
 

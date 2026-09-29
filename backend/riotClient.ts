@@ -1,6 +1,6 @@
-import 'dotenv/config';
 import axios from 'axios';
 
+import { getRiotClientConfig } from './config';
 import {
     setRiotRateLimitCooldown,
     waitForRiotRateLimit,
@@ -29,15 +29,9 @@ const maxRiotRequestAttempts = 3;
 const defaultRetryAfterSeconds = 1;
 const maximumRetryAfterSeconds = 120;
 
-const riotApiKey = process.env.RIOT_API_KEY?.trim();
-
-if (!riotApiKey) {
-    throw new Error('RIOT_API_KEY environment variable is required.');
-}
-
 const riotClient = axios.create({
     headers: {
-        'X-Riot-Token': riotApiKey,
+        'X-Riot-Token': getRiotClientConfig().apiKey,
     },
     timeout: 15000,
 });

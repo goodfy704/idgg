@@ -1,8 +1,9 @@
-import 'dotenv/config';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from 'pg';
+
+import { getMigrationDatabaseConfig } from './config';
 
 type AppliedMigration = {
     checksum: string;
@@ -10,16 +11,6 @@ type AppliedMigration = {
 
 const migrationFilePattern = /^\d{3}_[a-z0-9_]+\.sql$/;
 const migrationLockName = 'idgg_schema_migrations';
-
-const getDatabaseUrl = () => {
-    const databaseUrl = process.env.DATABASE_URL?.trim();
-
-    if (!databaseUrl) {
-        throw new Error('DATABASE_URL environment variable is required.');
-    }
-
-    return databaseUrl;
-};
 
 const getMigrationFiles = async () => {
     const migrationsDirectory = join(__dirname, 'migrations');
@@ -36,7 +27,9 @@ const getMigrationFiles = async () => {
 
 export async function runMigrations(): Promise<string[]> {
     const migrationFiles = await getMigrationFiles();
-    const client = new Client({ connectionString: getDatabaseUrl() });
+    const client = new Client({
+        connectionString: getMigrationDatabaseConfig().connectionString,
+    });
     const appliedMigrations: string[] = [];
 
     try {

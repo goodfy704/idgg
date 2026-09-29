@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 
+import { getServerConfig, type RiotPlatform } from './config';
 import { closeDatabase, verifyDatabaseConnection } from './database';
 import { runMigrations } from './migrate';
 import { getOrSyncPlayerReport, type PlayerReportSync } from './playerSync';
@@ -16,6 +17,7 @@ import {
     type PlayerReport,
     type SummonerData,
 } from './riotSchemas';
+import { createServerLifecycle } from './serverLifecycle';
 
 type HttpRequest = {
     query: Record<string, unknown>;
@@ -34,10 +36,21 @@ type HttpResponse = {
 
 type RequestHandler = (request: HttpRequest, response: HttpResponse) => unknown;
 type AsyncRequestHandler = (request: HttpRequest, response: HttpResponse) => Promise<unknown>;
+type ErrorRequestHandler = (
+    error: unknown,
+    request: HttpRequest,
+    response: HttpResponse,
+    next: (error?: unknown) => void
+) => unknown;
 
 type ExpressApplication = {
+    disable: (setting: string) => void;
     listen: (port: number, callback: () => void) => Server;
     get: (path: string, handler: RequestHandler) => void;
+    use: {
+        (handler: RequestHandler): void;
+        (handler: ErrorRequestHandler): void;
+    };
 };
 
 type ExpressFactory = () => ExpressApplication;
@@ -53,35 +66,10 @@ type ChampionTotals = {
 type RegionalRoute = 'americas' | 'asia' | 'europe' | 'sea';
 
 const recentMatchCount = 10;
+const serverConfig = getServerConfig();
+const platforms = serverConfig.supportedPlatforms;
 
-const getServerPort = () => {
-    const configuredPort = process.env.PORT?.trim();
-
-    if (!configuredPort) {
-        return 4000;
-    }
-
-    if (!/^\d+$/.test(configuredPort)) {
-        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
-    }
-
-    const port = Number(configuredPort);
-
-    if (port < 1 || port > 65535) {
-        throw new Error('PORT environment variable must be an integer between 1 and 65535.');
-    }
-
-    return port;
-};
-
-const platforms = [
-    'br1', 'eun1', 'euw1', 'jp1', 'kr', 'la1', 'la2', 'me1', 'na1',
-    'oc1', 'ph2', 'ru', 'sg2', 'th2', 'tr1', 'tw2', 'vn2',
-] as const;
-
-type Platform = typeof platforms[number];
-
-const platformToRegionalRoute: Record<Platform, RegionalRoute> = {
+const platformToRegionalRoute: Record<RiotPlatform, RegionalRoute> = {
     br1: 'americas',
     eun1: 'europe',
     euw1: 'europe',
@@ -116,7 +104,7 @@ type PlayerReportResponse = {
 
 type PlayerLocation = {
     PUUID: string;
-    platform: Platform;
+    platform: RiotPlatform;
     regionalRoute: RegionalRoute;
     summoner: SummonerData;
 };
@@ -156,11 +144,17 @@ const playerLocationLookups = new Map<string, Promise<PlayerLocation | null>>();
 
 const express: ExpressFactory = require('express');
 const app = express();
+app.disable('x-powered-by');
 let server: Server | null = null;
-let shuttingDown = false;
+const lifecycle = createServerLifecycle({
+    shutdownGraceMilliseconds: serverConfig.shutdownGraceMilliseconds,
+    closeResources: closeDatabase,
+});
 
 const sendRouteError = (response: HttpResponse, error: unknown) => {
     if (response.headersSent) {
+        console.error('Request failed after the response started.');
+
         if (!response.writableEnded) {
             response.end();
         }
@@ -168,7 +162,7 @@ const sendRouteError = (response: HttpResponse, error: unknown) => {
     }
 
     if (error instanceof RiotResponseError) {
-        console.error(error.message);
+        console.error('Riot API returned an invalid response.');
         response.status(502).json({ message: 'Riot API returned an invalid response.' });
         return;
     }
@@ -203,9 +197,8 @@ const sendRouteError = (response: HttpResponse, error: unknown) => {
         return;
     }
 
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`Unexpected server error: ${message}`);
-    response.status(500).json({ message: 'Unexpected server error.' });
+    console.error('Unexpected server error.');
+    response.status(500).json({ message: 'Internal server error.' });
 };
 
 const withErrorBoundary = (handler: AsyncRequestHandler): RequestHandler => (
@@ -213,6 +206,32 @@ const withErrorBoundary = (handler: AsyncRequestHandler): RequestHandler => (
         void handler(request, response).catch(error => sendRouteError(response, error));
     }
 );
+
+app.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ status: 'ok' });
+});
+
+app.get('/ready', withErrorBoundary(async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+
+    if (!lifecycle.isReady()) {
+        return res.status(503).json({ status: 'not_ready' });
+    }
+
+    try {
+        await verifyDatabaseConnection();
+    } catch {
+        console.error('Readiness database check failed.');
+        return res.status(503).json({ status: 'not_ready' });
+    }
+
+    if (!lifecycle.isReady()) {
+        return res.status(503).json({ status: 'not_ready' });
+    }
+
+    return res.status(200).json({ status: 'ready' });
+}));
 
 async function getPlayerPUUID(
     playerName: string,
@@ -437,7 +456,6 @@ app.get('/championStats', withErrorBoundary(async (req, res) => {
                 }
                 const stats = champStats[championName];
                 stats.games += 1;
-                console.log(stats.games, championName);
                 stats.wins += participant.win ? 1 : 0;
                 stats.kills += participant.kills;
                 stats.deaths += participant.deaths;
@@ -472,59 +490,49 @@ app.get('/championStats', withErrorBoundary(async (req, res) => {
     res.end();
 }));
 
-const closeHttpServer = async (): Promise<void> => {
-    const activeServer = server;
+app.use((_req, res) => (
+    res.status(404).json({ message: 'Route not found.' })
+));
 
-    if (!activeServer) {
-        return;
-    }
-
-    await new Promise<void>((resolve, reject) => {
-        activeServer.close(error => {
-            if (error) {
-                reject(error);
-                return;
-            }
-
-            resolve();
-        });
-    });
-    server = null;
+const expressErrorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+    sendRouteError(res, error);
 };
 
-const shutdown = async () => {
-    if (shuttingDown) {
-        return;
-    }
+app.use(expressErrorHandler);
 
-    shuttingDown = true;
-
-    try {
-        await closeHttpServer();
-        await closeDatabase();
-    } catch {
-        console.error('Server shutdown failed.');
-        process.exitCode = 1;
-    }
+const shutdown = async (): Promise<void> => {
+    await lifecycle.shutdown(server);
+    server = null;
 };
 
 const startServer = async () => {
     try {
-        const port = getServerPort();
+        const port = serverConfig.port;
         await verifyDatabaseConnection();
         await runMigrations();
+
+        if (!lifecycle.canStart()) {
+            return;
+        }
+
         server = app.listen(port, function () {
-            console.log(`Server started on port ${port}`);
+            if (lifecycle.markReady()) {
+                console.log(`Server started on port ${port}`);
+            }
+        });
+        server.once('error', () => {
+            if (lifecycle.isShuttingDown()) {
+                return;
+            }
+
+            console.error('HTTP server failed.');
+            process.exitCode = 1;
+            void shutdown();
         });
     } catch {
         console.error('Server startup failed. Server was not started.');
         process.exitCode = 1;
-
-        try {
-            await closeDatabase();
-        } catch {
-            console.error('PostgreSQL pool shutdown failed.');
-        }
+        await shutdown();
     }
 };
 
